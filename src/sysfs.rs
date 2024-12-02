@@ -207,34 +207,123 @@ impl PropertyWriter for PropertyPreferredRole {
     }
 }
 
-macro_rules! property_ro {
-    ($name:ident, $read:ty $(, from($from:expr))?) => {
-        property_ro!($name, $read, with(PropertyParse::<$read>) $(, from($from))?);
+macro_rules! property {
+    // This is filling in the macro's parameters (function return type, source
+    // filename, etc) one-by-one, most of it is just boilerplate.
+    (
+        _stage_fill_return,
+        $name:ident,
+        ro($read:ty),
+        $($rest:tt)*
+    ) => {
+        property!(_stage_fill_with, $name,
+            read($read),
+            returns(impl PropertyReadable<Read = $read> + '_),
+            $($rest)*);
     };
-    ($name:ident, $read:ty, with($impl:ty) $(, from($from:expr))?) => {
-        pub fn $name(&self) -> impl PropertyReadable<Read = $read> + '_ {
-            PropertyImpl::<'_, $impl>::new(
-                self.dfd.as_fd(),
-                ($($from,)? stringify!($name),).0,
-            )
-        }
-    };
-}
 
-macro_rules! property_rw {
-    ($name:ident, $rw:ty, with($impl:ty) $(, from($from:expr))?) => {
-        property_rw!($name, $rw, $rw, with($impl) $(, from($from))?);
+    (
+        _stage_fill_return,
+        $name:ident,
+        rw($read:ty),
+        $($rest:tt)*
+    ) => {
+        property!(_stage_fill_with, $name,
+            read($read),
+            returns(impl PropertyWritable<Read = $read, Write = $read> + '_),
+            $($rest)*);
     };
-    ($name:ident, $rw:ty, with($impl:ty) $(, from($from:expr))?) => {
-        property_rw!($name, $rw, $rw, with($impl) $(, from($from))?);
+
+    (
+        _stage_fill_return,
+        $name:ident,
+        rw($read:ty, $write:ty),
+        $($rest:tt)*
+    ) => {
+        property!(_stage_fill_with, $name,
+            read($read),
+            returns(impl PropertyWritable<Read = $read, Write = $write> + '_),
+            $($rest)*);
     };
-    ($name:ident, $read:ty, $write:ty, with($impl:ty) $(, from($from:expr))?) => {
-        pub fn $name(&self) -> impl PropertyWritable<Read = $read, Write = $write> + '_ {
-            PropertyImpl::<'_, $impl>::new(
-                self.dfd.as_fd(),
-                ($($from,)? stringify!($name),).0,
-            )
+
+    (
+        _stage_fill_with,
+        $name:ident,
+        read($read:ty),
+        returns($ret:ty),
+        with($impl:ty),
+        $($rest:tt)*
+    ) => {
+        property!(_stage_fill_from, $name,
+            returns($ret),
+            with($impl),
+            $($rest)*);
+    };
+
+    (
+        _stage_fill_with,
+        $name:ident,
+        read($read:ty),
+        returns($ret:ty),
+        with(),
+        $($rest:tt)*
+    ) => {
+        property!(_stage_fill_from, $name,
+            returns($ret),
+            with(PropertyParse::<$read>),
+            $($rest)*);
+    };
+
+    (
+        _stage_fill_from,
+        $name:ident,
+        returns($ret:ty),
+        with($impl:ty),
+        from($from:literal)
+    ) => {
+        property!(_stage_final, $name,
+            returns($ret),
+            with($impl),
+            from($from));
+    };
+
+    (
+        _stage_fill_from,
+        $name:ident,
+        returns($ret:ty),
+        with($impl:ty),
+        from()
+    ) => {
+        property!(_stage_final, $name,
+            returns($ret),
+            with($impl),
+            from(stringify!($name)));
+    };
+
+    (
+        _stage_final,
+        $name:ident,
+        returns($ret:ty),
+        with($impl:ty),
+        from($from:expr)
+    ) => {
+        pub fn $name(&self) -> $ret {
+            PropertyImpl::<'_, $impl>::new(self.dfd.as_fd(), $from)
         }
+    };
+
+    (
+        $name:ident,
+        $access:ident($read:ty $(, $write:ty)?)
+        $(, with($impl:ty))?
+        $(, from($from:literal))?
+        $(,)?
+    ) => {
+        property!(_stage_fill_return,
+            $name,
+            $access($read $(, $write)?),
+            with($($impl)?),
+            from($($from)?));
     };
 }
 
@@ -480,32 +569,29 @@ impl Port {
         })
     }
 
-    property_rw!(
+    property!(
         data_role,
-        RoleSelection<DataRole>,
-        DataRole,
-        with(PropertyRoleSelection::<DataRole>)
+        rw(RoleSelection<DataRole>, DataRole),
+        with(PropertyRoleSelection::<DataRole>),
     );
-    property_rw!(
+    property!(
         port_type,
-        RoleSelection<PortType>,
-        PortType,
-        with(PropertyRoleSelection::<PortType>)
+        rw(RoleSelection<PortType>, PortType),
+        with(PropertyRoleSelection::<PortType>),
     );
-    property_rw!(
+    property!(
         power_role,
-        RoleSelection<PowerRole>,
-        PowerRole,
-        with(PropertyRoleSelection::<PowerRole>)
+        rw(RoleSelection<PowerRole>, PowerRole),
+        with(PropertyRoleSelection::<PowerRole>),
     );
-    property_rw!(
+    property!(
         preferred_role,
-        Option<PowerRole>,
-        with(PropertyPreferredRole)
+        ro(Option<PowerRole>),
+        with(PropertyPreferredRole),
     );
-    property_ro!(power_operation_mode, PowerOperationMode);
-    property_ro!(usb_power_delivery_revision, Revision);
-    property_ro!(usb_typec_revision, Revision);
+    property!(power_operation_mode, ro(PowerOperationMode));
+    property!(usb_power_delivery_revision, ro(Revision));
+    property!(usb_typec_revision, ro(Revision));
 
     pub fn alt_modes(&self) -> DeviceCollection<'_, AltMode<PortPath>> {
         DeviceCollection {
@@ -576,7 +662,7 @@ impl_device!(Partner, path(PartnerPath));
 
 impl Partner {
     // TODO: type
-    property_ro!(usb_power_delivery_revision, Revision);
+    property!(usb_power_delivery_revision, ro(Revision));
 
     pub fn identity(&self) -> IdentityPartner<'_> {
         IdentityPartner {
@@ -640,9 +726,9 @@ impl Cable {
         }
     }
 
-    property_ro!(cable_type, CableType, from("type"));
-    property_ro!(plug_type, PlugType);
-    property_ro!(usb_power_delivery_revision, Revision);
+    property!(cable_type, ro(CableType), from("type"));
+    property!(plug_type, ro(PlugType));
+    property!(usb_power_delivery_revision, ro(Revision));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -745,10 +831,10 @@ impl_device!(AltMode<Parent>, forall(<Parent: DevicePath>), path(AltModePath<Par
 impl<Parent: DevicePath> AltMode<Parent> {
     // do we need 'mode'? is it different from the already-present index?
 
-    property_rw!(active, bool, with(PropertyBoolYesNo));
-    property_ro!(supported_roles, SupportedRoles);
-    property_ro!(svid, u16, with(PropertyHexU16));
-    property_ro!(vdo, u32, with(PropertyHexU32));
+    property!(active, rw(bool), with(PropertyBoolYesNo));
+    property!(supported_roles, ro(SupportedRoles));
+    property!(svid, ro(u16), with(PropertyHexU16));
+    property!(vdo, ro(u32), with(PropertyHexU32));
 }
 
 #[derive(Debug)]
@@ -757,14 +843,14 @@ pub struct IdentityPartner<'fd> {
 }
 
 impl IdentityPartner<'_> {
-    property_ro!(id_header, VdoIdHeaderPartner);
-    property_ro!(cert_stat, VdoCertStat);
-    property_ro!(product, VdoProduct);
+    property!(id_header, ro(VdoIdHeaderPartner));
+    property!(cert_stat, ro(VdoCertStat));
+    property!(product, ro(VdoProduct));
 
     // TODO: should these be different types?
-    property_ro!(product_type_vdo1, u32);
-    property_ro!(product_type_vdo2, u32);
-    property_ro!(product_type_vdo3, u32);
+    property!(product_type_vdo1, ro(u32));
+    property!(product_type_vdo2, ro(u32));
+    property!(product_type_vdo3, ro(u32));
 }
 
 #[derive(Debug)]
@@ -773,14 +859,14 @@ pub struct IdentityCable<'fd> {
 }
 
 impl IdentityCable<'_> {
-    property_ro!(id_header, VdoIdHeaderCable);
-    property_ro!(cert_stat, VdoCertStat);
-    property_ro!(product, VdoProduct);
+    property!(id_header, ro(VdoIdHeaderCable));
+    property!(cert_stat, ro(VdoCertStat));
+    property!(product, ro(VdoProduct));
 
     // TODO: should these be different types?
-    property_ro!(product_type_vdo1, u32);
-    property_ro!(product_type_vdo2, u32);
-    property_ro!(product_type_vdo3, u32);
+    property!(product_type_vdo1, ro(u32));
+    property!(product_type_vdo2, ro(u32));
+    property!(product_type_vdo3, ro(u32));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, strum::Display)]
@@ -1042,21 +1128,25 @@ impl_device!(SourceCapabilitiesFixedSupply, path(PdoPath));
 
 impl SourceCapabilitiesFixedSupply {
     // first item only!
-    property_ro!(dual_role_power, bool, with(PropertyBoolIntegral));
-    property_ro!(usb_suspend_supported, bool, with(PropertyBoolIntegral));
-    property_ro!(unconstrained_power, bool, with(PropertyBoolIntegral));
-    property_ro!(usb_communication_capable, bool, with(PropertyBoolIntegral));
-    property_ro!(dual_role_data, bool, with(PropertyBoolIntegral));
-    property_ro!(
+    property!(dual_role_power, ro(bool), with(PropertyBoolIntegral));
+    property!(usb_suspend_supported, ro(bool), with(PropertyBoolIntegral));
+    property!(unconstrained_power, ro(bool), with(PropertyBoolIntegral));
+    property!(
+        usb_communication_capable,
+        ro(bool),
+        with(PropertyBoolIntegral)
+    );
+    property!(dual_role_data, ro(bool), with(PropertyBoolIntegral));
+    property!(
         unchuncked_extended_messages_supported,
-        bool,
+        ro(bool),
         with(PropertyBoolIntegral)
     );
 
     // available on all items
-    property_ro!(peak_current, u32);
-    property_ro!(voltage, Millivolts);
-    property_ro!(maximum_current, Milliamps);
+    property!(peak_current, ro(u32));
+    property!(voltage, ro(Millivolts));
+    property!(maximum_current, ro(Milliamps));
 }
 
 #[derive(Debug)]
@@ -1069,21 +1159,25 @@ impl_device!(SinkCapabilitiesFixedSupply, path(PdoPath));
 
 impl SinkCapabilitiesFixedSupply {
     // first item only!
-    property_ro!(dual_role_power, bool, with(PropertyBoolIntegral));
-    property_ro!(higher_capability, bool, with(PropertyBoolIntegral));
-    property_ro!(unconstrained_power, bool, with(PropertyBoolIntegral));
-    property_ro!(usb_communication_capable, bool, with(PropertyBoolIntegral));
-    property_ro!(dual_role_data, bool, with(PropertyBoolIntegral));
-    property_ro!(
-        unchuncked_external_messages,
-        bool,
+    property!(dual_role_power, ro(bool), with(PropertyBoolIntegral));
+    property!(higher_capability, ro(bool), with(PropertyBoolIntegral));
+    property!(unconstrained_power, ro(bool), with(PropertyBoolIntegral));
+    property!(
+        usb_communication_capable,
+        ro(bool),
         with(PropertyBoolIntegral)
     );
-    property_ro!(fast_role_swap_current, u32);
+    property!(dual_role_data, ro(bool), with(PropertyBoolIntegral));
+    property!(
+        unchuncked_external_messages,
+        ro(bool),
+        with(PropertyBoolIntegral)
+    );
+    property!(fast_role_swap_current, ro(u32));
 
     // available on all items
-    property_ro!(voltage, Millivolts);
-    property_ro!(operational_current, Milliamps);
+    property!(voltage, ro(Millivolts));
+    property!(operational_current, ro(Milliamps));
 }
 
 #[derive(Debug)]
@@ -1095,9 +1189,9 @@ pub struct SourceCapabilitiesBattery {
 impl_device!(SourceCapabilitiesBattery, path(PdoPath));
 
 impl SourceCapabilitiesBattery {
-    property_ro!(maximum_voltage, Millivolts);
-    property_ro!(minimum_voltage, Millivolts);
-    property_ro!(maximum_power, Milliwatts);
+    property!(maximum_voltage, ro(Millivolts));
+    property!(minimum_voltage, ro(Millivolts));
+    property!(maximum_power, ro(Milliwatts));
 }
 
 #[derive(Debug)]
@@ -1109,9 +1203,9 @@ pub struct SinkCapabilitiesBattery {
 impl_device!(SinkCapabilitiesBattery, path(PdoPath));
 
 impl SinkCapabilitiesBattery {
-    property_ro!(maximum_voltage, Millivolts);
-    property_ro!(minimum_voltage, Millivolts);
-    property_ro!(operational_power, Milliwatts);
+    property!(maximum_voltage, ro(Millivolts));
+    property!(minimum_voltage, ro(Millivolts));
+    property!(operational_power, ro(Milliwatts));
 }
 
 #[derive(Debug)]
@@ -1123,9 +1217,9 @@ pub struct SourceCapabilitiesVariableSupply {
 impl_device!(SourceCapabilitiesVariableSupply, path(PdoPath));
 
 impl SourceCapabilitiesVariableSupply {
-    property_ro!(maximum_voltage, Millivolts);
-    property_ro!(minimum_voltage, Millivolts);
-    property_ro!(maximum_current, Milliamps);
+    property!(maximum_voltage, ro(Millivolts));
+    property!(minimum_voltage, ro(Millivolts));
+    property!(maximum_current, ro(Milliamps));
 }
 
 #[derive(Debug)]
@@ -1137,9 +1231,9 @@ pub struct SinkCapabilitiesVariableSupply {
 impl_device!(SinkCapabilitiesVariableSupply, path(PdoPath));
 
 impl SinkCapabilitiesVariableSupply {
-    property_ro!(maximum_voltage, Millivolts);
-    property_ro!(minimum_voltage, Millivolts);
-    property_ro!(operational_current, Milliamps);
+    property!(maximum_voltage, ro(Millivolts));
+    property!(minimum_voltage, ro(Millivolts));
+    property!(operational_current, ro(Milliamps));
 }
 
 #[derive(Debug)]
@@ -1151,10 +1245,10 @@ pub struct SourceCapabilitiesProgrammableSupply {
 impl_device!(SourceCapabilitiesProgrammableSupply, path(PdoPath));
 
 impl SourceCapabilitiesProgrammableSupply {
-    property_ro!(power_limited, bool, with(PropertyBoolIntegral));
-    property_ro!(maximum_voltage, Millivolts);
-    property_ro!(minimum_voltage, Millivolts);
-    property_ro!(maximum_current, Milliamps);
+    property!(power_limited, ro(bool), with(PropertyBoolIntegral));
+    property!(maximum_voltage, ro(Millivolts));
+    property!(minimum_voltage, ro(Millivolts));
+    property!(maximum_current, ro(Milliamps));
 }
 
 #[derive(Debug)]
@@ -1166,7 +1260,7 @@ pub struct SinkCapabilitiesProgrammableSupply {
 impl_device!(SinkCapabilitiesProgrammableSupply, path(PdoPath));
 
 impl SinkCapabilitiesProgrammableSupply {
-    property_ro!(maximum_voltage, Millivolts);
-    property_ro!(minimum_voltage, Millivolts);
-    property_ro!(maximum_current, Milliamps);
+    property!(maximum_voltage, ro(Millivolts));
+    property!(minimum_voltage, ro(Millivolts));
+    property!(maximum_current, ro(Milliamps));
 }
