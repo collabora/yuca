@@ -32,7 +32,7 @@ macro_rules! dump_prop {
 
 macro_rules! dump_getter_error {
     ($dumper: expr, $target: expr, $getter: ident $(,)?) => {
-        match $target.$getter() {
+        match $target.$getter().open() {
             Ok(item) => Some(item),
             Err(err) => {
                 dump!($dumper, "{}: {:?}", stringify!($getter), err);
@@ -46,6 +46,7 @@ macro_rules! dump_iter_errors {
     ($dumper: expr, $target: expr, $getter: ident $(,)?) => {
         $target
             .$getter()
+            .iter_opened()
             .map_err(move |err| dump!($dumper, "{}: {:?}", stringify!($getter), err))
             .into_iter()
             .flatten()
@@ -63,9 +64,9 @@ macro_rules! dump_iter_errors {
 fn main() {
     let dumper = Dumper { indent_level: 0 };
 
-    for port in Port::list().unwrap() {
+    for port in Port::collection().unwrap().iter_opened().unwrap() {
         let port = port.unwrap();
-        dump!(dumper, "Port: {}", port.port());
+        dump!(dumper, "Port: {}", port.path().port);
         dumper.indented(|dumper| {
             dump_prop!(dumper, port, port_type);
             dump_prop!(dumper, port, data_role);
@@ -74,16 +75,6 @@ fn main() {
             dump_prop!(dumper, port, power_operation_mode);
             dump_prop!(dumper, port, usb_power_delivery_revision);
             dump_prop!(dumper, port, usb_typec_revision);
-
-            for alt_mode in dump_iter_errors!(dumper, port, alt_modes) {
-                dump!(dumper, "Alt mode: {}", alt_mode.index());
-                dumper.indented(|dumper| {
-                    dump_prop!(dumper, alt_mode, active);
-                    dump_prop!(dumper, alt_mode, supported_roles);
-                    dump_prop!(dumper, alt_mode, svid);
-                    dump_prop!(dumper, alt_mode, vdo);
-                });
-            }
 
             if let Some(cable) = dump_getter_error!(dumper, port, cable) {
                 dump!(dumper, "Cable:");
@@ -121,7 +112,7 @@ fn main() {
 
                     dump_prop!(dumper, partner, usb_power_delivery_revision);
                     for alt_mode in dump_iter_errors!(dumper, partner, alt_modes) {
-                        dump!(dumper, "Alt mode: {}", alt_mode.index());
+                        dump!(dumper, "Alt mode: {}", alt_mode.path().index);
                         dumper.indented(|dumper| {
                             dump_prop!(dumper, alt_mode, active);
                             dump_prop!(dumper, alt_mode, supported_roles);
@@ -129,110 +120,130 @@ fn main() {
                             dump_prop!(dumper, alt_mode, vdo);
                         });
                     }
-                });
-            }
 
-            if let Some(pd) = dump_getter_error!(dumper, port, usb_power_delivery) {
-                dump!(dumper, "USB PD:");
-                dumper.indented(|dumper| {
-                    dump!(dumper, "Source capabilities:");
-                    dumper.indented(|dumper| {
-                        for caps in dump_iter_errors!(dumper, pd, source_capabilities) {
-                            match caps {
-                                SourceCapabilities::FixedSupply(caps) => {
-                                    dump!(dumper, "- Fixed supply:");
-                                    dumper.indented(|dumper| {
-                                        dump_prop!(dumper, caps, dual_role_power);
-                                        dump_prop!(dumper, caps, usb_suspend_supported);
-                                        dump_prop!(dumper, caps, unconstrained_power);
-                                        dump_prop!(dumper, caps, usb_communication_capable);
-                                        dump_prop!(dumper, caps, dual_role_data);
-                                        dump_prop!(
-                                            dumper,
-                                            caps,
-                                            unchuncked_extended_messages_supported
-                                        );
-                                        dump_prop!(dumper, caps, peak_current);
-                                        dump_prop!(dumper, caps, voltage);
-                                        dump_prop!(dumper, caps, maximum_current);
-                                    });
-                                }
-                                SourceCapabilities::Battery(caps) => {
-                                    dump!(dumper, "- Battery:");
-                                    dumper.indented(|dumper| {
-                                        dump_prop!(dumper, caps, maximum_voltage);
-                                        dump_prop!(dumper, caps, minimum_voltage);
-                                        dump_prop!(dumper, caps, maximum_power);
-                                    });
-                                }
-                                SourceCapabilities::VariableSupply(caps) => {
-                                    dump!(dumper, "- Variable supply:");
-                                    dumper.indented(|dumper| {
-                                        dump_prop!(dumper, caps, maximum_voltage);
-                                        dump_prop!(dumper, caps, minimum_voltage);
-                                        dump_prop!(dumper, caps, maximum_current);
-                                    });
-                                }
-                                SourceCapabilities::ProgrammableSupply(caps) => {
-                                    dump!(dumper, "- Programmable supply:");
-                                    dumper.indented(|dumper| {
-                                        dump_prop!(dumper, caps, power_limited);
-                                        dump_prop!(dumper, caps, maximum_voltage);
-                                        dump_prop!(dumper, caps, minimum_voltage);
-                                        dump_prop!(dumper, caps, maximum_current);
-                                    });
-                                }
-                            }
+                    for pd in dump_iter_errors!(dumper, partner, pds) {
+                        dump!(dumper, "USB PD: {}", pd.path().pd);
+                        if let Some(caps) = dump_getter_error!(dumper, pd, source_capabilities) {
+                            dumper.indented(|dumper| {
+                                dump!(dumper, "Source capabilities:");
+                                dumper.indented(|dumper| {
+                                    for pdo in dump_iter_errors!(dumper, caps, pdos) {
+                                        match pdo {
+                                            SourcePdo::FixedSupply(caps) => {
+                                                dump!(dumper, "- Fixed supply:");
+                                                dumper.indented(|dumper| {
+                                                    dump_prop!(dumper, caps, dual_role_power);
+                                                    dump_prop!(dumper, caps, usb_suspend_supported);
+                                                    dump_prop!(dumper, caps, unconstrained_power);
+                                                    dump_prop!(
+                                                        dumper,
+                                                        caps,
+                                                        usb_communication_capable
+                                                    );
+                                                    dump_prop!(dumper, caps, dual_role_data);
+                                                    dump_prop!(
+                                                        dumper,
+                                                        caps,
+                                                        unchuncked_extended_messages_supported
+                                                    );
+                                                    dump_prop!(dumper, caps, peak_current);
+                                                    dump_prop!(dumper, caps, voltage);
+                                                    dump_prop!(dumper, caps, maximum_current);
+                                                });
+                                            }
+                                            SourcePdo::Battery(caps) => {
+                                                dump!(dumper, "- Battery:");
+                                                dumper.indented(|dumper| {
+                                                    dump_prop!(dumper, caps, maximum_voltage);
+                                                    dump_prop!(dumper, caps, minimum_voltage);
+                                                    dump_prop!(dumper, caps, maximum_power);
+                                                });
+                                            }
+                                            SourcePdo::VariableSupply(caps) => {
+                                                dump!(dumper, "- Variable supply:");
+                                                dumper.indented(|dumper| {
+                                                    dump_prop!(dumper, caps, maximum_voltage);
+                                                    dump_prop!(dumper, caps, minimum_voltage);
+                                                    dump_prop!(dumper, caps, maximum_current);
+                                                });
+                                            }
+                                            SourcePdo::ProgrammableSupply(caps) => {
+                                                dump!(dumper, "- Programmable supply:");
+                                                dumper.indented(|dumper| {
+                                                    dump_prop!(dumper, caps, power_limited);
+                                                    dump_prop!(dumper, caps, maximum_voltage);
+                                                    dump_prop!(dumper, caps, minimum_voltage);
+                                                    dump_prop!(dumper, caps, maximum_current);
+                                                });
+                                            }
+                                        }
+                                    }
+                                });
+                            });
                         }
-                    });
-                });
 
-                dumper.indented(|dumper| {
-                    dump!(dumper, "Sink capabilities:");
-                    dumper.indented(|dumper| {
-                        for caps in dump_iter_errors!(dumper, pd, sink_capabilities) {
-                            match caps {
-                                SinkCapabilities::FixedSupply(caps) => {
-                                    dump!(dumper, "- Fixed supply:");
-                                    dumper.indented(|dumper| {
-                                        dump_prop!(dumper, caps, dual_role_power);
-                                        dump_prop!(dumper, caps, higher_capability);
-                                        dump_prop!(dumper, caps, unconstrained_power);
-                                        dump_prop!(dumper, caps, usb_communication_capable);
-                                        dump_prop!(dumper, caps, dual_role_data);
-                                        dump_prop!(dumper, caps, unchuncked_external_messages);
-                                        dump_prop!(dumper, caps, fast_role_swap_current);
-                                        dump_prop!(dumper, caps, voltage);
-                                        dump_prop!(dumper, caps, operational_current);
-                                    });
-                                }
-                                SinkCapabilities::Battery(caps) => {
-                                    dump!(dumper, "- Battery:");
-                                    dumper.indented(|dumper| {
-                                        dump_prop!(dumper, caps, maximum_voltage);
-                                        dump_prop!(dumper, caps, minimum_voltage);
-                                        dump_prop!(dumper, caps, operational_power);
-                                    });
-                                }
-                                SinkCapabilities::VariableSupply(caps) => {
-                                    dump!(dumper, "- Variable supply:");
-                                    dumper.indented(|dumper| {
-                                        dump_prop!(dumper, caps, maximum_voltage);
-                                        dump_prop!(dumper, caps, minimum_voltage);
-                                        dump_prop!(dumper, caps, operational_current);
-                                    });
-                                }
-                                SinkCapabilities::ProgrammableSupply(caps) => {
-                                    dump!(dumper, "- Programmable supply:");
-                                    dumper.indented(|dumper| {
-                                        dump_prop!(dumper, caps, maximum_voltage);
-                                        dump_prop!(dumper, caps, minimum_voltage);
-                                        dump_prop!(dumper, caps, maximum_current);
-                                    });
-                                }
-                            }
+                        if let Some(caps) = dump_getter_error!(dumper, pd, sink_capabilities) {
+                            dumper.indented(|dumper| {
+                                dump!(dumper, "Sink capabilities:");
+                                dumper.indented(|dumper| {
+                                    for pdo in dump_iter_errors!(dumper, caps, pdos) {
+                                        match pdo {
+                                            SinkPdo::FixedSupply(caps) => {
+                                                dump!(dumper, "- Fixed supply:");
+                                                dumper.indented(|dumper| {
+                                                    dump_prop!(dumper, caps, dual_role_power);
+                                                    dump_prop!(dumper, caps, higher_capability);
+                                                    dump_prop!(dumper, caps, unconstrained_power);
+                                                    dump_prop!(
+                                                        dumper,
+                                                        caps,
+                                                        usb_communication_capable
+                                                    );
+                                                    dump_prop!(dumper, caps, dual_role_data);
+                                                    dump_prop!(
+                                                        dumper,
+                                                        caps,
+                                                        unchuncked_external_messages
+                                                    );
+                                                    dump_prop!(
+                                                        dumper,
+                                                        caps,
+                                                        fast_role_swap_current
+                                                    );
+                                                    dump_prop!(dumper, caps, voltage);
+                                                    dump_prop!(dumper, caps, operational_current);
+                                                });
+                                            }
+                                            SinkPdo::Battery(caps) => {
+                                                dump!(dumper, "- Battery:");
+                                                dumper.indented(|dumper| {
+                                                    dump_prop!(dumper, caps, maximum_voltage);
+                                                    dump_prop!(dumper, caps, minimum_voltage);
+                                                    dump_prop!(dumper, caps, operational_power);
+                                                });
+                                            }
+                                            SinkPdo::VariableSupply(caps) => {
+                                                dump!(dumper, "- Variable supply:");
+                                                dumper.indented(|dumper| {
+                                                    dump_prop!(dumper, caps, maximum_voltage);
+                                                    dump_prop!(dumper, caps, minimum_voltage);
+                                                    dump_prop!(dumper, caps, operational_current);
+                                                });
+                                            }
+                                            SinkPdo::ProgrammableSupply(caps) => {
+                                                dump!(dumper, "- Programmable supply:");
+                                                dumper.indented(|dumper| {
+                                                    dump_prop!(dumper, caps, maximum_voltage);
+                                                    dump_prop!(dumper, caps, minimum_voltage);
+                                                    dump_prop!(dumper, caps, maximum_current);
+                                                });
+                                            }
+                                        }
+                                    }
+                                });
+                            });
                         }
-                    });
+                    }
                 });
             }
         });

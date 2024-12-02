@@ -56,7 +56,7 @@ pub enum DataRole {
     Device,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum PowerRole {
     Source,

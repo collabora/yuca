@@ -1,5 +1,5 @@
 use std::{
-    fmt,
+    fmt::{self, Write as FmtWrite},
     fs::File,
     io::{Read, Write},
     marker::PhantomData,
@@ -238,23 +238,162 @@ macro_rules! property_rw {
     };
 }
 
-struct ChildIter<
-    Params,
-    Child,
-    Parse: Fn(&str) -> Option<Params>,
-    Create: Fn(OwnedFd, Params) -> Child,
-> {
-    dfd: OwnedFd,
-    dir: Dir,
-    child_oflags: OFlags,
-    parse: Parse,
-    create: Create,
+enum MaybeOwnedFd<'a> {
+    Owned(OwnedFd),
+    Borrowed(BorrowedFd<'a>),
 }
 
-impl<Params, Child, Parse: Fn(&str) -> Option<Params>, Create: Fn(OwnedFd, Params) -> Child>
-    Iterator for ChildIter<Params, Child, Parse, Create>
+impl AsFd for MaybeOwnedFd<'_> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        match &self {
+            MaybeOwnedFd::Owned(fd) => fd.as_fd(),
+            MaybeOwnedFd::Borrowed(fd) => fd.as_fd(),
+        }
+    }
+}
+
+pub trait DevicePath: fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash + Sized {
+    type Parent: DevicePathParent;
+
+    fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self>;
+    fn build_basename(&self, s: &mut String);
+
+    fn parent(&self) -> Self::Parent;
+}
+
+pub trait DevicePathParent: fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash {
+    fn build_syspath(&self, s: &mut String);
+}
+
+impl<P: DevicePath> DevicePathParent for P {
+    fn build_syspath(&self, s: &mut String) {
+        self.parent().build_syspath(s);
+        if !s.is_empty() {
+            s.push('/');
+        }
+        self.build_basename(s);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NoParent;
+
+impl DevicePathParent for NoParent {
+    fn build_syspath(&self, _s: &mut String) {}
+}
+
+pub trait DevicePathIndexed: DevicePath {
+    type Index;
+
+    fn child_of(parent: Self::Parent, index: Self::Index) -> Self;
+}
+
+pub trait Device: Sized {
+    type Path: DevicePath;
+
+    fn from_fd(dfd: OwnedFd, path: Self::Path) -> Self;
+
+    fn path(&self) -> &Self::Path;
+}
+
+macro_rules! impl_device {
+    ($dev:ty, $(forall($($args:tt)*), )? path($path:ty)) => {
+        impl $($($args)*)? Device for $dev {
+            type Path = $path;
+
+            fn from_fd(dfd: OwnedFd, path: Self::Path) -> Self {
+                Self { dfd, path }
+            }
+
+            fn path(&self) -> &Self::Path {
+                &self.path
+            }
+        }
+    };
+}
+
+#[derive(Debug)]
+pub struct DeviceEntry<'fd, T: Device> {
+    parent_dfd: BorrowedFd<'fd>,
+    path: T::Path,
+}
+
+impl<'fd, T: Device> DeviceEntry<'fd, T> {
+    pub fn path(&self) -> &T::Path {
+        &self.path
+    }
+
+    pub fn open(&self) -> Result<T> {
+        let mut s = String::new();
+        self.path.build_basename(&mut s);
+        let dfd = openat(
+            self.parent_dfd,
+            s,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        Ok(T::from_fd(dfd, self.path))
+    }
+}
+
+pub struct DeviceCollection<'fd, Child: Device> {
+    dfd: MaybeOwnedFd<'fd>,
+    parent: <Child::Path as DevicePath>::Parent,
+    phantom: PhantomData<Child>,
+}
+
+impl<'fd, Child: Device> DeviceCollection<'fd, Child> {
+    pub fn iter(&self) -> Result<DeviceIter<'_, Child>> {
+        Ok(DeviceIter {
+            dfd: self.dfd.as_fd(),
+            dir: Dir::read_from(&self.dfd)?,
+            parent: self.parent,
+            phantom: PhantomData,
+        })
+    }
+
+    pub fn iter_opened(&self) -> Result<impl Iterator<Item = Result<Child>> + '_> {
+        let iter = self.iter()?;
+        Ok(iter.map(|x| x.and_then(|x| x.open())))
+    }
+
+    pub fn list(&self) -> Result<Vec<DeviceEntry<'_, Child>>> {
+        self.iter().and_then(|x| x.collect())
+    }
+
+    pub fn list_opened(&self) -> Result<Vec<Child>> {
+        self.iter_opened().and_then(|x| x.collect())
+    }
+}
+
+impl<'fd, Child: Device> DeviceCollection<'fd, Child>
+where
+    Child::Path: DevicePathIndexed,
 {
-    type Item = Result<Child>;
+    pub fn get(&self, index: <Child::Path as DevicePathIndexed>::Index) -> Result<Child> {
+        let path = Child::Path::child_of(self.parent, index);
+        let mut s = String::new();
+        path.build_basename(&mut s);
+
+        let dfd = openat(
+            self.dfd.as_fd(),
+            s,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        Ok(Child::from_fd(dfd, path))
+    }
+}
+
+pub struct DeviceIter<'fd, Child: Device> {
+    dfd: BorrowedFd<'fd>,
+    dir: Dir,
+    parent: <Child::Path as DevicePath>::Parent,
+    phantom: PhantomData<Child>,
+}
+
+impl<'fd, Child: Device> Iterator for DeviceIter<'fd, Child> {
+    type Item = Result<DeviceEntry<'fd, Child>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(entry) = self.dir.next() {
@@ -269,82 +408,76 @@ impl<Params, Child, Parse: Fn(&str) -> Option<Params>, Create: Fn(OwnedFd, Param
                 Err(err) => return Some(Err(err.into())),
             };
 
-            let Some(params) = (self.parse)(name) else {
+            let Some(path) = Child::Path::parse_basename(name, self.parent) else {
                 continue;
             };
 
-            return Some(
-                openat(&self.dfd, name, self.child_oflags, Mode::empty())
-                    .map(|fd| (self.create)(fd, params))
-                    .map_err(|e| e.into()),
-            );
+            if path.parent() != self.parent {
+                continue;
+            }
+
+            return Some(Ok(DeviceEntry {
+                parent_dfd: self.dfd,
+                path,
+            }));
         }
 
         None
     }
 }
 
-pub struct Port {
-    dfd: OwnedFd,
-    port: u32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PortPath {
+    pub port: u32,
 }
 
+impl DevicePath for PortPath {
+    type Parent = NoParent;
+
+    fn parse_basename(s: &str, _parent: Self::Parent) -> Option<Self> {
+        let s = s.strip_prefix("port")?;
+        let port = u32::from_str(s).ok()?;
+        Some(Self { port })
+    }
+
+    fn build_basename(&self, s: &mut String) {
+        write!(s, "port{}", self.port).unwrap();
+    }
+
+    fn parent(&self) -> Self::Parent {
+        NoParent
+    }
+}
+
+impl DevicePathIndexed for PortPath {
+    type Index = u32;
+
+    fn child_of(_parent: Self::Parent, index: Self::Index) -> Self {
+        PortPath { port: index }
+    }
+}
+
+#[derive(Debug)]
+pub struct Port {
+    dfd: OwnedFd,
+    path: PortPath,
+}
+
+impl_device!(Port, path(PortPath));
+
 impl Port {
-    pub fn list() -> Result<impl Iterator<Item = Result<Port>>> {
+    pub fn collection() -> Result<DeviceCollection<'static, Port>> {
         let dfd = openat(
             CWD,
             "/sys/class/typec",
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
             Mode::empty(),
         )?;
-
-        Ok(ChildIter {
-            dir: Dir::read_from(&dfd)?,
-            dfd,
-            child_oflags: OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            parse: |s| {
-                let s = s.strip_prefix("port")?;
-                let port = u32::from_str(s).ok()?;
-                Some(port)
-            },
-            create: |dfd, port| Port { dfd, port },
+        Ok(DeviceCollection {
+            dfd: MaybeOwnedFd::Owned(dfd),
+            parent: NoParent,
+            phantom: PhantomData,
         })
-    }
-
-    pub fn port(&self) -> u32 {
-        self.port
-    }
-
-    pub fn cable(&self) -> Result<Cable> {
-        let port = self.port;
-        let dfd = openat(
-            &self.dfd,
-            format!("port{port}-cable"),
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?;
-        Ok(Cable { dfd, port })
-    }
-
-    pub fn partner(&self) -> Result<Partner> {
-        let port = self.port;
-        let dfd = openat(
-            &self.dfd,
-            format!("port{port}-partner"),
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?;
-        Ok(Partner { dfd, port })
-    }
-
-    pub fn usb_power_delivery(&self) -> Result<UsbPowerDelivery> {
-        let dfd = openat(
-            &self.dfd,
-            "usb_power_delivery",
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?;
-        Ok(UsbPowerDelivery { dfd })
     }
 
     property_rw!(
@@ -374,54 +507,74 @@ impl Port {
     property_ro!(usb_power_delivery_revision, Revision);
     property_ro!(usb_typec_revision, Revision);
 
-    pub fn alt_modes(&self) -> Result<impl Iterator<Item = Result<AltMode>>> {
-        // TODO: dedup
-        // TODO: remove unneeded clone?
-        let dfd = self.dfd.try_clone()?;
-
-        Ok(ChildIter {
-            dir: Dir::read_from(&dfd)?,
-            dfd,
-            child_oflags: OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            parse: |s| {
-                let (_, index) = s.split_once('.')?;
-                let index = u32::from_str(index).ok()?;
-                Some(index)
-            },
-            create: |dfd, index| AltMode { dfd, index },
-        })
+    pub fn alt_modes(&self) -> DeviceCollection<'_, AltMode<PortPath>> {
+        DeviceCollection {
+            dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
+            parent: self.path,
+            phantom: PhantomData,
+        }
     }
 
-    pub fn plugs(&self) -> Result<impl Iterator<Item = Result<Plug>>> {
-        let port = self.port;
-        // TODO: remove unneeded clone?
-        let dfd = self.dfd.try_clone()?;
-
-        Ok(ChildIter {
-            dir: Dir::read_from(&dfd)?,
-            dfd,
-            child_oflags: OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            parse: |s| {
-                let (_, index) = s.split_once('.')?;
-                let index = index.strip_prefix("plug")?;
-                let index = u32::from_str(index).ok()?;
-                Some(index)
+    pub fn cable(&self) -> DeviceEntry<'_, Cable> {
+        DeviceEntry {
+            parent_dfd: self.dfd.as_fd(),
+            path: CablePath {
+                port: self.path.port,
             },
-            create: move |dfd, index| Plug { dfd, port, index },
-        })
+        }
+    }
+
+    pub fn partner(&self) -> DeviceEntry<'_, Partner> {
+        DeviceEntry {
+            parent_dfd: self.dfd.as_fd(),
+            path: PartnerPath {
+                port: self.path.port,
+            },
+        }
+    }
+
+    pub fn plugs(&self) -> DeviceCollection<'_, Plug> {
+        DeviceCollection {
+            dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
+            parent: self.path,
+            phantom: PhantomData,
+        }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PartnerPath {
+    pub port: u32,
+}
+
+impl DevicePath for PartnerPath {
+    type Parent = PortPath;
+
+    fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self> {
+        let s = s.strip_suffix("-partner")?;
+        let parent = Self::Parent::parse_basename(s, parent.parent())?;
+        Some(Self { port: parent.port })
+    }
+
+    fn build_basename(&self, s: &mut String) {
+        self.parent().build_basename(s);
+        write!(s, "-partner").unwrap();
+    }
+
+    fn parent(&self) -> Self::Parent {
+        Self::Parent { port: self.port }
+    }
+}
+
+#[derive(Debug)]
 pub struct Partner {
     dfd: OwnedFd,
-    port: u32,
+    path: PartnerPath,
 }
 
-impl Partner {
-    pub fn port(&self) -> u32 {
-        self.port
-    }
+impl_device!(Partner, path(PartnerPath));
 
+impl Partner {
     // TODO: type
     property_ro!(usb_power_delivery_revision, Revision);
 
@@ -431,45 +584,56 @@ impl Partner {
         }
     }
 
-    pub fn alt_modes(&self) -> Result<impl Iterator<Item = Result<AltMode>>> {
-        // TODO: dedup
-        // TODO: remove unneeded clone?
-        let dfd = self.dfd.try_clone()?;
-
-        Ok(ChildIter {
-            dir: Dir::read_from(&dfd)?,
-            dfd,
-            child_oflags: OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            parse: |s| {
-                let (_, index) = s.split_once('.')?;
-                let index = u32::from_str(index).ok()?;
-                Some(index)
-            },
-            create: |dfd, index| AltMode { dfd, index },
-        })
+    pub fn alt_modes(&self) -> DeviceCollection<'_, AltMode<PartnerPath>> {
+        DeviceCollection {
+            dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
+            parent: self.path,
+            phantom: PhantomData,
+        }
     }
 
-    pub fn usb_power_delivery(&self) -> Result<UsbPowerDelivery> {
-        let dfd = openat(
-            &self.dfd,
-            "usb_power_delivery",
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?;
-        Ok(UsbPowerDelivery { dfd })
+    pub fn pds(&self) -> DeviceCollection<'_, PowerDelivery> {
+        DeviceCollection {
+            dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
+            parent: self.path,
+            phantom: PhantomData,
+        }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CablePath {
+    pub port: u32,
+}
+
+impl DevicePath for CablePath {
+    type Parent = PortPath;
+
+    fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self> {
+        let s = s.strip_suffix("-cable")?;
+        let parent = Self::Parent::parse_basename(s, parent.parent())?;
+        Some(Self { port: parent.port })
+    }
+
+    fn build_basename(&self, s: &mut String) {
+        self.parent().build_basename(s);
+        write!(s, "-cable").unwrap();
+    }
+
+    fn parent(&self) -> Self::Parent {
+        Self::Parent { port: self.port }
+    }
+}
+
+#[derive(Debug)]
 pub struct Cable {
     dfd: OwnedFd,
-    port: u32,
+    path: CablePath,
 }
 
-impl Cable {
-    pub fn port(&self) -> u32 {
-        self.port
-    }
+impl_device!(Cable, path(CablePath));
 
+impl Cable {
     pub fn identity(&self) -> IdentityCable<'_> {
         IdentityCable {
             dfd: self.dfd.as_fd(),
@@ -481,49 +645,104 @@ impl Cable {
     property_ro!(usb_power_delivery_revision, Revision);
 }
 
-pub struct Plug {
-    dfd: OwnedFd,
-    port: u32,
-    index: u32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PlugPath {
+    pub port: u32,
+    pub index: u32,
 }
 
-impl Plug {
-    pub fn port(&self) -> u32 {
-        self.port
-    }
+impl DevicePath for PlugPath {
+    type Parent = PortPath;
 
-    pub fn index(&self) -> u32 {
-        self.index
-    }
+    fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self> {
+        let (a, b) = s.split_once('-')?;
+        let parent = Self::Parent::parse_basename(a, parent.parent())?;
 
-    pub fn alt_modes(&self) -> Result<impl Iterator<Item = Result<AltMode>>> {
-        // TODO: remove unneeded clone?
-        let dfd = self.dfd.try_clone()?;
+        let b = b.strip_prefix("plug")?;
+        let index = u32::from_str(b).ok()?;
 
-        Ok(ChildIter {
-            dir: Dir::read_from(&dfd)?,
-            dfd,
-            child_oflags: OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            parse: |s| {
-                let (_, index) = s.split_once('.')?;
-                let index = u32::from_str(index).ok()?;
-                Some(index)
-            },
-            create: |dfd, index| AltMode { dfd, index },
+        Some(Self {
+            port: parent.port,
+            index,
         })
     }
-}
 
-pub struct AltMode {
-    dfd: OwnedFd,
-    index: u32,
-}
-
-impl AltMode {
-    pub fn index(&self) -> u32 {
-        self.index
+    fn build_basename(&self, s: &mut String) {
+        self.parent().build_basename(s);
+        write!(s, "plug{}", self.index).unwrap();
     }
 
+    fn parent(&self) -> Self::Parent {
+        Self::Parent { port: self.port }
+    }
+}
+
+impl DevicePathIndexed for PlugPath {
+    type Index = u32;
+
+    fn child_of(parent: Self::Parent, index: Self::Index) -> Self {
+        PlugPath {
+            port: parent.port,
+            index,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Plug {
+    dfd: OwnedFd,
+    path: PlugPath,
+}
+
+impl_device!(Plug, path(PlugPath));
+
+impl Plug {
+    pub fn alt_modes(&self) -> DeviceCollection<'_, AltMode<PlugPath>> {
+        DeviceCollection {
+            dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
+            parent: self.path,
+            phantom: PhantomData,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AltModePath<Parent: DevicePath> {
+    pub parent: Parent,
+    pub index: u32,
+}
+
+impl<Parent: DevicePath> DevicePath for AltModePath<Parent> {
+    type Parent = Parent;
+
+    fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self> {
+        let (a, b) = s.split_once('.')?;
+
+        let parent = Parent::parse_basename(a, parent.parent())?;
+        let index = u32::from_str(b).ok()?;
+
+        Some(AltModePath { parent, index })
+    }
+
+    fn build_basename(&self, s: &mut String) {
+        self.parent().build_basename(s);
+        write!(s, ".{}", self.index).unwrap();
+    }
+
+    fn parent(&self) -> Self::Parent {
+        self.parent
+    }
+}
+
+#[derive(Debug)]
+pub struct AltMode<Parent: DevicePath> {
+    dfd: OwnedFd,
+    path: AltModePath<Parent>,
+}
+
+impl_device!(AltMode<Parent>, forall(<Parent: DevicePath>), path(AltModePath<Parent>));
+
+impl<Parent: DevicePath> AltMode<Parent> {
     // do we need 'mode'? is it different from the already-present index?
 
     property_rw!(active, bool, with(PropertyBoolYesNo));
@@ -532,6 +751,7 @@ impl AltMode {
     property_ro!(vdo, u32, with(PropertyHexU32));
 }
 
+#[derive(Debug)]
 pub struct IdentityPartner<'fd> {
     dfd: BorrowedFd<'fd>,
 }
@@ -547,6 +767,7 @@ impl IdentityPartner<'_> {
     property_ro!(product_type_vdo3, u32);
 }
 
+#[derive(Debug)]
 pub struct IdentityCable<'fd> {
     dfd: BorrowedFd<'fd>,
 }
@@ -562,111 +783,264 @@ impl IdentityCable<'_> {
     property_ro!(product_type_vdo3, u32);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, strum::Display)]
 #[strum(serialize_all = "snake_case")]
-enum SupplyName {
+pub enum SupplyKind {
     FixedSupply,
     Battery,
     VariableSupply,
     ProgrammableSupply,
 }
 
-pub struct UsbPowerDelivery {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PowerDeliveryPath {
+    pub port: u32,
+    pub pd: u32,
+}
+
+impl DevicePath for PowerDeliveryPath {
+    type Parent = PartnerPath;
+
+    fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self> {
+        let s = s.strip_prefix("pd")?;
+        let pd = u32::from_str(s).ok()?;
+
+        Some(Self {
+            port: parent.port,
+            pd,
+        })
+    }
+
+    fn build_basename(&self, s: &mut String) {
+        write!(s, "pd{}", self.pd).unwrap();
+    }
+
+    fn parent(&self) -> Self::Parent {
+        Self::Parent { port: self.port }
+    }
+}
+
+#[derive(Debug)]
+pub struct PowerDelivery {
     dfd: OwnedFd,
+    path: PowerDeliveryPath,
 }
 
-impl UsbPowerDelivery {
-    fn capabilities<Capabilities>(
-        &self,
-        name: &str,
-        create: impl Fn(OwnedFd, (u32, SupplyName)) -> Capabilities,
-    ) -> Result<impl Iterator<Item = Result<Capabilities>>> {
-        let dfd = openat(
-            &self.dfd,
-            name,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?;
+impl_device!(PowerDelivery, path(PowerDeliveryPath));
 
-        Ok(ChildIter {
-            dir: Dir::read_from(&dfd)?,
-            dfd,
-            child_oflags: OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-            parse: |s| {
-                let (index, supply) = s.split_once(':')?;
-                let index = u32::from_str(index).ok()?;
-                let supply = SupplyName::from_str(supply).ok()?;
-                Some((index, supply))
+impl PowerDelivery {
+    pub fn source_capabilities(&self) -> DeviceEntry<'_, SourceCapabilities> {
+        DeviceEntry {
+            parent_dfd: self.dfd.as_fd(),
+            path: CapabilitiesPath {
+                port: self.path.port,
+                pd: self.path.pd,
+                role: PowerRole::Source,
             },
-            create,
-        })
+        }
     }
 
-    pub fn source_capabilities(&self) -> Result<impl Iterator<Item = Result<SourceCapabilities>>> {
-        self.capabilities("source-capabilities", |dfd, (index, supply)| match supply {
-            SupplyName::FixedSupply => {
-                SourceCapabilities::FixedSupply(SourceCapabilitiesFixedSupply { dfd, index })
-            }
-            SupplyName::Battery => {
-                SourceCapabilities::Battery(SourceCapabilitiesBattery { dfd, index })
-            }
-            SupplyName::VariableSupply => {
-                SourceCapabilities::VariableSupply(SourceCapabilitiesVariableSupply { dfd, index })
-            }
-            SupplyName::ProgrammableSupply => {
-                SourceCapabilities::ProgrammableSupply(SourceCapabilitiesProgrammableSupply {
-                    dfd,
-                    index,
-                })
-            }
-        })
-    }
-
-    pub fn sink_capabilities(&self) -> Result<impl Iterator<Item = Result<SinkCapabilities>>> {
-        self.capabilities("sink-capabilities", |dfd, (index, supply)| match supply {
-            SupplyName::FixedSupply => {
-                SinkCapabilities::FixedSupply(SinkCapabilitiesFixedSupply { dfd, index })
-            }
-            SupplyName::Battery => {
-                SinkCapabilities::Battery(SinkCapabilitiesBattery { dfd, index })
-            }
-            SupplyName::VariableSupply => {
-                SinkCapabilities::VariableSupply(SinkCapabilitiesVariableSupply { dfd, index })
-            }
-            SupplyName::ProgrammableSupply => {
-                SinkCapabilities::ProgrammableSupply(SinkCapabilitiesProgrammableSupply {
-                    dfd,
-                    index,
-                })
-            }
-        })
+    pub fn sink_capabilities(&self) -> DeviceEntry<'_, SinkCapabilities> {
+        DeviceEntry {
+            parent_dfd: self.dfd.as_fd(),
+            path: CapabilitiesPath {
+                port: self.path.port,
+                pd: self.path.pd,
+                role: PowerRole::Source,
+            },
+        }
     }
 }
 
-pub enum SourceCapabilities {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CapabilitiesPath {
+    pub port: u32,
+    pub pd: u32,
+    pub role: PowerRole,
+}
+
+impl DevicePath for CapabilitiesPath {
+    type Parent = PowerDeliveryPath;
+
+    fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self> {
+        let s = s.strip_suffix("-capabilities")?;
+        let role = PowerRole::from_str(s).ok()?;
+        Some(Self {
+            port: parent.port,
+            pd: parent.pd,
+            role,
+        })
+    }
+
+    fn build_basename(&self, s: &mut String) {
+        write!(s, "{}-capabilities", self.role).unwrap();
+    }
+
+    fn parent(&self) -> Self::Parent {
+        Self::Parent {
+            port: self.port,
+            pd: self.pd,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct SourceCapabilities {
+    dfd: OwnedFd,
+    path: CapabilitiesPath,
+}
+
+impl_device!(SourceCapabilities, path(CapabilitiesPath));
+
+impl SourceCapabilities {
+    pub fn pdos(&self) -> DeviceCollection<'_, SourcePdo> {
+        DeviceCollection {
+            dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
+            parent: self.path,
+            phantom: PhantomData,
+        }
+    }
+}
+
+// XXX: copy-pasted struct, but making this generic like AltMode is hard
+#[derive(Debug)]
+pub struct SinkCapabilities {
+    dfd: OwnedFd,
+    path: CapabilitiesPath,
+}
+
+impl_device!(SinkCapabilities, path(CapabilitiesPath));
+
+impl SinkCapabilities {
+    pub fn pdos(&self) -> DeviceCollection<'_, SinkPdo> {
+        DeviceCollection {
+            dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
+            parent: self.path,
+            phantom: PhantomData,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PdoPath {
+    port: u32,
+    pd: u32,
+
+    role: PowerRole,
+    index: u32,
+    supply: SupplyKind,
+}
+
+impl DevicePath for PdoPath {
+    type Parent = CapabilitiesPath;
+
+    fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self> {
+        let (a, b) = s.split_once(':')?;
+        let index = u32::from_str(a).ok()?;
+        let supply = SupplyKind::from_str(b).ok()?;
+        Some(Self {
+            port: parent.port,
+            pd: parent.pd,
+            role: parent.role,
+            index,
+            supply,
+        })
+    }
+
+    fn build_basename(&self, s: &mut String) {
+        write!(s, "{}:{}", self.index, self.supply).unwrap();
+    }
+
+    fn parent(&self) -> Self::Parent {
+        Self::Parent {
+            port: self.port,
+            pd: self.pd,
+            role: self.role,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum SourcePdo {
     FixedSupply(SourceCapabilitiesFixedSupply),
     Battery(SourceCapabilitiesBattery),
     VariableSupply(SourceCapabilitiesVariableSupply),
     ProgrammableSupply(SourceCapabilitiesProgrammableSupply),
 }
 
-pub enum SinkCapabilities {
+impl Device for SourcePdo {
+    type Path = PdoPath;
+
+    fn from_fd(dfd: OwnedFd, path: Self::Path) -> Self {
+        match path.supply {
+            SupplyKind::FixedSupply => {
+                SourcePdo::FixedSupply(SourceCapabilitiesFixedSupply { dfd, path })
+            }
+            SupplyKind::Battery => SourcePdo::Battery(SourceCapabilitiesBattery { dfd, path }),
+            SupplyKind::VariableSupply => {
+                SourcePdo::VariableSupply(SourceCapabilitiesVariableSupply { dfd, path })
+            }
+            SupplyKind::ProgrammableSupply => {
+                SourcePdo::ProgrammableSupply(SourceCapabilitiesProgrammableSupply { dfd, path })
+            }
+        }
+    }
+
+    fn path(&self) -> &Self::Path {
+        match self {
+            SourcePdo::FixedSupply(pdo) => pdo.path(),
+            SourcePdo::Battery(pdo) => pdo.path(),
+            SourcePdo::VariableSupply(pdo) => pdo.path(),
+            SourcePdo::ProgrammableSupply(pdo) => pdo.path(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum SinkPdo {
     FixedSupply(SinkCapabilitiesFixedSupply),
     Battery(SinkCapabilitiesBattery),
     VariableSupply(SinkCapabilitiesVariableSupply),
     ProgrammableSupply(SinkCapabilitiesProgrammableSupply),
 }
 
-pub struct SourceCapabilitiesFixedSupply {
-    dfd: OwnedFd,
-    index: u32,
-}
+impl Device for SinkPdo {
+    type Path = PdoPath;
 
-impl SourceCapabilitiesFixedSupply {
-    pub fn index(&self) -> u32 {
-        self.index
+    fn from_fd(dfd: OwnedFd, path: Self::Path) -> Self {
+        match path.supply {
+            SupplyKind::FixedSupply => {
+                SinkPdo::FixedSupply(SinkCapabilitiesFixedSupply { dfd, path })
+            }
+            SupplyKind::Battery => SinkPdo::Battery(SinkCapabilitiesBattery { dfd, path }),
+            SupplyKind::VariableSupply => {
+                SinkPdo::VariableSupply(SinkCapabilitiesVariableSupply { dfd, path })
+            }
+            SupplyKind::ProgrammableSupply => {
+                SinkPdo::ProgrammableSupply(SinkCapabilitiesProgrammableSupply { dfd, path })
+            }
+        }
     }
 
+    fn path(&self) -> &Self::Path {
+        match self {
+            SinkPdo::FixedSupply(pdo) => pdo.path(),
+            SinkPdo::Battery(pdo) => pdo.path(),
+            SinkPdo::VariableSupply(pdo) => pdo.path(),
+            SinkPdo::ProgrammableSupply(pdo) => pdo.path(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct SourceCapabilitiesFixedSupply {
+    dfd: OwnedFd,
+    path: PdoPath,
+}
+
+impl_device!(SourceCapabilitiesFixedSupply, path(PdoPath));
+
+impl SourceCapabilitiesFixedSupply {
     // first item only!
     property_ro!(dual_role_power, bool, with(PropertyBoolIntegral));
     property_ro!(usb_suspend_supported, bool, with(PropertyBoolIntegral));
@@ -685,16 +1059,15 @@ impl SourceCapabilitiesFixedSupply {
     property_ro!(maximum_current, Milliamps);
 }
 
+#[derive(Debug)]
 pub struct SinkCapabilitiesFixedSupply {
     dfd: OwnedFd,
-    index: u32,
+    path: PdoPath,
 }
 
-impl SinkCapabilitiesFixedSupply {
-    pub fn index(&self) -> u32 {
-        self.index
-    }
+impl_device!(SinkCapabilitiesFixedSupply, path(PdoPath));
 
+impl SinkCapabilitiesFixedSupply {
     // first item only!
     property_ro!(dual_role_power, bool, with(PropertyBoolIntegral));
     property_ro!(higher_capability, bool, with(PropertyBoolIntegral));
@@ -713,92 +1086,86 @@ impl SinkCapabilitiesFixedSupply {
     property_ro!(operational_current, Milliamps);
 }
 
+#[derive(Debug)]
 pub struct SourceCapabilitiesBattery {
     dfd: OwnedFd,
-    index: u32,
+    path: PdoPath,
 }
 
-impl SourceCapabilitiesBattery {
-    pub fn index(&self) -> u32 {
-        self.index
-    }
+impl_device!(SourceCapabilitiesBattery, path(PdoPath));
 
+impl SourceCapabilitiesBattery {
     property_ro!(maximum_voltage, Millivolts);
     property_ro!(minimum_voltage, Millivolts);
     property_ro!(maximum_power, Milliwatts);
 }
 
+#[derive(Debug)]
 pub struct SinkCapabilitiesBattery {
     dfd: OwnedFd,
-    index: u32,
+    path: PdoPath,
 }
 
-impl SinkCapabilitiesBattery {
-    pub fn index(&self) -> u32 {
-        self.index
-    }
+impl_device!(SinkCapabilitiesBattery, path(PdoPath));
 
+impl SinkCapabilitiesBattery {
     property_ro!(maximum_voltage, Millivolts);
     property_ro!(minimum_voltage, Millivolts);
     property_ro!(operational_power, Milliwatts);
 }
 
+#[derive(Debug)]
 pub struct SourceCapabilitiesVariableSupply {
     dfd: OwnedFd,
-    index: u32,
+    path: PdoPath,
 }
 
-impl SourceCapabilitiesVariableSupply {
-    pub fn index(&self) -> u32 {
-        self.index
-    }
+impl_device!(SourceCapabilitiesVariableSupply, path(PdoPath));
 
+impl SourceCapabilitiesVariableSupply {
     property_ro!(maximum_voltage, Millivolts);
     property_ro!(minimum_voltage, Millivolts);
     property_ro!(maximum_current, Milliamps);
 }
 
+#[derive(Debug)]
 pub struct SinkCapabilitiesVariableSupply {
     dfd: OwnedFd,
-    index: u32,
+    path: PdoPath,
 }
 
-impl SinkCapabilitiesVariableSupply {
-    pub fn index(&self) -> u32 {
-        self.index
-    }
+impl_device!(SinkCapabilitiesVariableSupply, path(PdoPath));
 
+impl SinkCapabilitiesVariableSupply {
     property_ro!(maximum_voltage, Millivolts);
     property_ro!(minimum_voltage, Millivolts);
     property_ro!(operational_current, Milliamps);
 }
 
+#[derive(Debug)]
 pub struct SourceCapabilitiesProgrammableSupply {
     dfd: OwnedFd,
-    index: u32,
+    path: PdoPath,
 }
 
-impl SourceCapabilitiesProgrammableSupply {
-    pub fn index(&self) -> u32 {
-        self.index
-    }
+impl_device!(SourceCapabilitiesProgrammableSupply, path(PdoPath));
 
+impl SourceCapabilitiesProgrammableSupply {
     property_ro!(power_limited, bool, with(PropertyBoolIntegral));
     property_ro!(maximum_voltage, Millivolts);
     property_ro!(minimum_voltage, Millivolts);
     property_ro!(maximum_current, Milliamps);
 }
 
+#[derive(Debug)]
 pub struct SinkCapabilitiesProgrammableSupply {
     dfd: OwnedFd,
-    index: u32,
+    path: PdoPath,
 }
 
-impl SinkCapabilitiesProgrammableSupply {
-    pub fn index(&self) -> u32 {
-        self.index
-    }
+impl_device!(SinkCapabilitiesProgrammableSupply, path(PdoPath));
 
+impl SinkCapabilitiesProgrammableSupply {
     property_ro!(maximum_voltage, Millivolts);
     property_ro!(minimum_voltage, Millivolts);
     property_ro!(maximum_current, Milliamps);
