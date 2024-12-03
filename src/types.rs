@@ -265,6 +265,7 @@ impl FromStr for VdoIdHeaderPartner {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
+        let s = s.strip_prefix("0x").ok_or(Error::Parse)?;
         let n = u32::from_str_radix(s, 16)?;
         if n == 0 {
             return Err(Error::IdentityUnavailable);
@@ -300,6 +301,7 @@ impl FromStr for VdoIdHeaderCable {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
+        let s = s.strip_prefix("0x").ok_or(Error::Parse)?;
         let n = u32::from_str_radix(s, 16)?;
         if n == 0 {
             return Err(Error::IdentityUnavailable);
@@ -316,6 +318,7 @@ impl FromStr for VdoCertStat {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
+        let s = s.strip_prefix("0x").ok_or(Error::Parse)?;
         let n = u32::from_str_radix(s, 16)?;
         if n == 0 {
             return Err(Error::IdentityUnavailable);
@@ -335,6 +338,7 @@ impl FromStr for VdoProduct {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
+        let s = s.strip_prefix("0x").ok_or(Error::Parse)?;
         let n = u32::from_str_radix(s, 16)?;
         if n == 0 {
             return Err(Error::IdentityUnavailable);

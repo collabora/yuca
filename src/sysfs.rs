@@ -92,11 +92,14 @@ struct PropertyParse<R: FromStr> {
     _phantom: PhantomData<R>,
 }
 
-impl<R: FromStr> PropertyReader for PropertyParse<R> {
+impl<R: FromStr> PropertyReader for PropertyParse<R>
+where
+    Error: From<R::Err>,
+{
     type Read = R;
 
     fn read(s: &str) -> Result<R> {
-        s.parse().or(Err(Error::Parse))
+        s.parse().map_err(Error::from)
     }
 }
 
@@ -104,7 +107,10 @@ struct PropertyParseDisplay<R: FromStr, W: fmt::Display> {
     _phantom: PhantomData<(R, W)>,
 }
 
-impl<R: FromStr, W: fmt::Display> PropertyReader for PropertyParseDisplay<R, W> {
+impl<R: FromStr, W: fmt::Display> PropertyReader for PropertyParseDisplay<R, W>
+where
+    Error: From<R::Err>,
+{
     type Read = R;
 
     fn read(s: &str) -> Result<R> {
@@ -112,7 +118,10 @@ impl<R: FromStr, W: fmt::Display> PropertyReader for PropertyParseDisplay<R, W> 
     }
 }
 
-impl<R: FromStr, W: fmt::Display> PropertyWriter for PropertyParseDisplay<R, W> {
+impl<R: FromStr, W: fmt::Display> PropertyWriter for PropertyParseDisplay<R, W>
+where
+    Error: From<R::Err>,
+{
     type Write = W;
 
     fn write(mut dest: impl Write, value: &Self::Write) -> Result<()> {
@@ -128,6 +137,7 @@ impl PropertyReader for PropertyHexU16 {
     type Read = u16;
 
     fn read(s: &str) -> Result<Self::Read> {
+        let s = s.strip_prefix("0x").ok_or(Error::Parse)?;
         u16::from_str_radix(s, 16).or(Err(Error::Parse))
     }
 }
@@ -138,6 +148,7 @@ impl PropertyReader for PropertyHexU32 {
     type Read = u32;
 
     fn read(s: &str) -> Result<Self::Read> {
+        let s = s.strip_prefix("0x").ok_or(Error::Parse)?;
         u32::from_str_radix(s, 16).or(Err(Error::Parse))
     }
 }
@@ -292,6 +303,19 @@ macro_rules! property {
         $name:ident,
         returns($ret:ty),
         with($impl:ty),
+        from(subdir($subdir:literal))
+    ) => {
+        property!(_stage_final, $name,
+            returns($ret),
+            with($impl),
+            from(concat!($subdir, "/", stringify!($name))));
+    };
+
+    (
+        _stage_fill_from,
+        $name:ident,
+        returns($ret:ty),
+        with($impl:ty),
         from()
     ) => {
         property!(_stage_final, $name,
@@ -316,14 +340,14 @@ macro_rules! property {
         $name:ident,
         $access:ident($read:ty $(, $write:ty)?)
         $(, with($impl:ty))?
-        $(, from($from:literal))?
+        $(, from($($from:tt)*))?
         $(,)?
     ) => {
         property!(_stage_fill_return,
             $name,
             $access($read $(, $write)?),
             with($($impl)?),
-            from($($from)?));
+            from($($($from)*)?));
     };
 }
 
@@ -843,14 +867,29 @@ pub struct IdentityPartner<'fd> {
 }
 
 impl IdentityPartner<'_> {
-    property!(id_header, ro(VdoIdHeaderPartner));
-    property!(cert_stat, ro(VdoCertStat));
-    property!(product, ro(VdoProduct));
+    property!(id_header, ro(VdoIdHeaderPartner), from(subdir("identity")));
+    property!(cert_stat, ro(VdoCertStat), from(subdir("identity")));
+    property!(product, ro(VdoProduct), from(subdir("identity")));
 
     // TODO: should these be different types?
-    property!(product_type_vdo1, ro(u32));
-    property!(product_type_vdo2, ro(u32));
-    property!(product_type_vdo3, ro(u32));
+    property!(
+        product_type_vdo1,
+        ro(u32),
+        with(PropertyHexU32),
+        from(subdir("identity"))
+    );
+    property!(
+        product_type_vdo2,
+        ro(u32),
+        with(PropertyHexU32),
+        from(subdir("identity"))
+    );
+    property!(
+        product_type_vdo3,
+        ro(u32),
+        with(PropertyHexU32),
+        from(subdir("identity"))
+    );
 }
 
 #[derive(Debug)]
@@ -859,14 +898,29 @@ pub struct IdentityCable<'fd> {
 }
 
 impl IdentityCable<'_> {
-    property!(id_header, ro(VdoIdHeaderCable));
-    property!(cert_stat, ro(VdoCertStat));
-    property!(product, ro(VdoProduct));
+    property!(id_header, ro(VdoIdHeaderCable), from(subdir("identity")));
+    property!(cert_stat, ro(VdoCertStat), from(subdir("identity")));
+    property!(product, ro(VdoProduct), from(subdir("identity")));
 
     // TODO: should these be different types?
-    property!(product_type_vdo1, ro(u32));
-    property!(product_type_vdo2, ro(u32));
-    property!(product_type_vdo3, ro(u32));
+    property!(
+        product_type_vdo1,
+        ro(u32),
+        with(PropertyHexU32),
+        from(subdir("identity"))
+    );
+    property!(
+        product_type_vdo2,
+        ro(u32),
+        with(PropertyHexU32),
+        from(subdir("identity"))
+    );
+    property!(
+        product_type_vdo3,
+        ro(u32),
+        with(PropertyHexU32),
+        from(subdir("identity"))
+    );
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, strum::Display)]
