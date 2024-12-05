@@ -6,6 +6,7 @@ use std::{
     str::FromStr,
 };
 
+use camino::Utf8Path;
 use rustix::{
     fd::{AsFd, BorrowedFd, OwnedFd},
     fs::{openat, Dir, Mode, OFlags, CWD},
@@ -13,7 +14,11 @@ use rustix::{
 };
 use strum::EnumString;
 
-use crate::{types::*, Error, Result};
+use crate::{
+    types::*,
+    watcher::{EventStream, WatchResult, Watcher},
+    Error, Result,
+};
 
 trait PropertyReader {
     type Read;
@@ -374,11 +379,25 @@ pub trait DevicePath: fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Ha
     fn parent(&self) -> Self::Parent;
 }
 
+macro_rules! device_path_child_collection_getter {
+    ($name:ident, $ret:ty) => {
+        pub fn $name(&self) -> DevicePathCollection<$ret> {
+            DevicePathCollection { parent: *self }
+        }
+    };
+}
+
 pub trait DevicePathParent: fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash {
+    fn parse_syspath(p: &Utf8Path) -> Option<Self>;
     fn build_syspath(&self, s: &mut String);
 }
 
 impl<P: DevicePath> DevicePathParent for P {
+    fn parse_syspath(p: &Utf8Path) -> Option<Self> {
+        let parent = P::Parent::parse_syspath(p.parent()?)?;
+        P::parse_basename(p.file_name()?, parent)
+    }
+
     fn build_syspath(&self, s: &mut String) {
         self.parent().build_syspath(s);
         if !s.is_empty() {
@@ -392,6 +411,10 @@ impl<P: DevicePath> DevicePathParent for P {
 pub struct NoParent;
 
 impl DevicePathParent for NoParent {
+    fn parse_syspath(_p: &Utf8Path) -> Option<Self> {
+        Some(NoParent)
+    }
+
     fn build_syspath(&self, _s: &mut String) {}
 }
 
@@ -399,6 +422,84 @@ pub trait DevicePathIndexed: DevicePath {
     type Index;
 
     fn child_of(parent: Self::Parent, index: Self::Index) -> Self;
+}
+
+pub trait DevicePathWatchable: DevicePath {
+    fn added(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>>;
+    fn changed(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>>;
+    fn removed(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>>;
+}
+
+macro_rules! impl_device_path_watchable {
+    ($path:ty $(, forall($($args:tt)*))?, $channels:ident) => {
+        impl $($($args)*)? DevicePathWatchable for $path {
+            fn added(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>> {
+                ctx.with_channels(|channels| channels.$channels.on_added.insert(*self))
+            }
+            fn changed(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>> {
+                ctx.with_channels(|channels| channels.$channels.on_changed.insert(*self))
+            }
+            fn removed(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>> {
+                ctx.with_channels(|channels| channels.$channels.on_removed.insert(*self))
+            }
+        }
+    }
+}
+
+// This requires DevicePathIndexed because a singleton child is already at a fixed path
+// location and thus can have added/removed invoked on itself, whereas, for an indexed
+// child, we can't exactly predict what the path will be when a device gets added.
+pub trait DevicePathWatchableFromParent: DevicePathIndexed {
+    fn added_in(parent: Self::Parent, ctx: &Watcher) -> WatchResult<EventStream<Self>>;
+    fn changed_in(parent: Self::Parent, ctx: &Watcher) -> WatchResult<EventStream<Self>>;
+    fn removed_in(parent: Self::Parent, ctx: &Watcher) -> WatchResult<EventStream<Self>>;
+}
+
+macro_rules! impl_device_path_watchable_from_parent {
+    ($path:ty $(, forall($($args:tt)*))?, $channels:ident) => {
+        impl_device_path_watchable!($path $(, forall($($args)*))?, $channels);
+
+        impl $($($args)*)? DevicePathWatchableFromParent for $path {
+            fn added_in(parent: Self::Parent, ctx: &Watcher) -> WatchResult<EventStream<Self>> {
+                ctx.with_channels(|channels| channels.$channels.on_inventory_added.insert(parent))
+            }
+            fn changed_in(parent: Self::Parent, ctx: &Watcher) -> WatchResult<EventStream<Self>> {
+                ctx.with_channels(|channels| channels.$channels.on_inventory_changed.insert(parent))
+            }
+            fn removed_in(parent: Self::Parent, ctx: &Watcher) -> WatchResult<EventStream<Self>> {
+                ctx.with_channels(|channels| channels.$channels.on_inventory_removed.insert(parent))
+            }
+        }
+    }
+}
+
+pub struct DevicePathCollection<Child: DevicePath> {
+    parent: Child::Parent,
+}
+
+impl<Child: DevicePath> DevicePathCollection<Child> {
+    pub fn parent(&self) -> &Child::Parent {
+        &self.parent
+    }
+}
+
+impl<Child: DevicePathIndexed> DevicePathCollection<Child> {
+    pub fn get(&self, index: Child::Index) -> Child {
+        Child::child_of(self.parent, index)
+    }
+}
+
+impl<Child: DevicePathWatchableFromParent> DevicePathCollection<Child> {
+    pub fn added(&self, ctx: &Watcher) -> WatchResult<EventStream<Child>> {
+        Child::added_in(self.parent, ctx)
+    }
+
+    pub fn changed(&self, ctx: &Watcher) -> WatchResult<EventStream<Child>> {
+        Child::changed_in(self.parent, ctx)
+    }
+    pub fn removed(&self, ctx: &Watcher) -> WatchResult<EventStream<Child>> {
+        Child::removed_in(self.parent, ctx)
+    }
 }
 
 pub trait Device: Sized {
@@ -410,7 +511,7 @@ pub trait Device: Sized {
 }
 
 macro_rules! impl_device {
-    ($dev:ty, $(forall($($args:tt)*), )? path($path:ty)) => {
+    ($dev:ty $(, forall($($args:tt)*))?, path($path:ty)) => {
         impl $($($args)*)? Device for $dev {
             type Path = $path;
 
@@ -544,6 +645,23 @@ pub struct PortPath {
     pub port: u32,
 }
 
+impl PortPath {
+    pub fn collection() -> DevicePathCollection<PortPath> {
+        DevicePathCollection { parent: NoParent }
+    }
+
+    pub fn cable(&self) -> CablePath {
+        CablePath { port: self.port }
+    }
+
+    pub fn partner(&self) -> PartnerPath {
+        PartnerPath { port: self.port }
+    }
+
+    device_path_child_collection_getter!(alt_modes, AltModePath<PortPath>);
+    device_path_child_collection_getter!(plugs, PlugPath);
+}
+
 impl DevicePath for PortPath {
     type Parent = NoParent;
 
@@ -569,6 +687,8 @@ impl DevicePathIndexed for PortPath {
         PortPath { port: index }
     }
 }
+
+impl_device_path_watchable_from_parent!(PortPath, port);
 
 #[derive(Debug)]
 pub struct Port {
@@ -628,18 +748,14 @@ impl Port {
     pub fn cable(&self) -> DeviceEntry<'_, Cable> {
         DeviceEntry {
             parent_dfd: self.dfd.as_fd(),
-            path: CablePath {
-                port: self.path.port,
-            },
+            path: self.path.cable(),
         }
     }
 
     pub fn partner(&self) -> DeviceEntry<'_, Partner> {
         DeviceEntry {
             parent_dfd: self.dfd.as_fd(),
-            path: PartnerPath {
-                port: self.path.port,
-            },
+            path: self.path.partner(),
         }
     }
 
@@ -655,6 +771,11 @@ impl Port {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PartnerPath {
     pub port: u32,
+}
+
+impl PartnerPath {
+    device_path_child_collection_getter!(alt_modes, AltModePath<PartnerPath>);
+    device_path_child_collection_getter!(pds, PowerDeliveryPath);
 }
 
 impl DevicePath for PartnerPath {
@@ -675,6 +796,8 @@ impl DevicePath for PartnerPath {
         Self::Parent { port: self.port }
     }
 }
+
+impl_device_path_watchable!(PartnerPath, partner);
 
 #[derive(Debug)]
 pub struct Partner {
@@ -735,6 +858,8 @@ impl DevicePath for CablePath {
     }
 }
 
+impl_device_path_watchable!(CablePath, cable);
+
 #[derive(Debug)]
 pub struct Cable {
     dfd: OwnedFd,
@@ -759,6 +884,10 @@ impl Cable {
 pub struct PlugPath {
     pub port: u32,
     pub index: u32,
+}
+
+impl PlugPath {
+    device_path_child_collection_getter!(alt_modes, AltModePath<PlugPath>);
 }
 
 impl DevicePath for PlugPath {
@@ -797,6 +926,8 @@ impl DevicePathIndexed for PlugPath {
         }
     }
 }
+
+impl_device_path_watchable_from_parent!(PlugPath, plug);
 
 #[derive(Debug)]
 pub struct Plug {
@@ -843,6 +974,18 @@ impl<Parent: DevicePath> DevicePath for AltModePath<Parent> {
         self.parent
     }
 }
+
+impl<Parent: DevicePath> DevicePathIndexed for AltModePath<Parent> {
+    type Index = u32;
+
+    fn child_of(parent: Self::Parent, index: Self::Index) -> Self {
+        Self { parent, index }
+    }
+}
+
+impl_device_path_watchable_from_parent!(AltModePath<PortPath>, port_alt_mode);
+impl_device_path_watchable_from_parent!(AltModePath<PartnerPath>, partner_alt_mode);
+impl_device_path_watchable_from_parent!(AltModePath<PlugPath>, plug_alt_mode);
 
 #[derive(Debug)]
 pub struct AltMode<Parent: DevicePath> {
@@ -938,6 +1081,24 @@ pub struct PowerDeliveryPath {
     pub pd: u32,
 }
 
+impl PowerDeliveryPath {
+    pub fn source_capabilities(&self) -> CapabilitiesPath {
+        CapabilitiesPath {
+            port: self.port,
+            pd: self.pd,
+            role: PowerRole::Source,
+        }
+    }
+
+    pub fn sink_capabilities(&self) -> CapabilitiesPath {
+        CapabilitiesPath {
+            port: self.port,
+            pd: self.pd,
+            role: PowerRole::Sink,
+        }
+    }
+}
+
 impl DevicePath for PowerDeliveryPath {
     type Parent = PartnerPath;
 
@@ -960,6 +1121,19 @@ impl DevicePath for PowerDeliveryPath {
     }
 }
 
+impl DevicePathIndexed for PowerDeliveryPath {
+    type Index = u32;
+
+    fn child_of(parent: Self::Parent, index: Self::Index) -> Self {
+        Self {
+            port: parent.port,
+            pd: index,
+        }
+    }
+}
+
+impl_device_path_watchable_from_parent!(PowerDeliveryPath, pd);
+
 #[derive(Debug)]
 pub struct PowerDelivery {
     dfd: OwnedFd,
@@ -972,26 +1146,19 @@ impl PowerDelivery {
     pub fn source_capabilities(&self) -> DeviceEntry<'_, SourceCapabilities> {
         DeviceEntry {
             parent_dfd: self.dfd.as_fd(),
-            path: CapabilitiesPath {
-                port: self.path.port,
-                pd: self.path.pd,
-                role: PowerRole::Source,
-            },
+            path: self.path.source_capabilities(),
         }
     }
 
     pub fn sink_capabilities(&self) -> DeviceEntry<'_, SinkCapabilities> {
         DeviceEntry {
             parent_dfd: self.dfd.as_fd(),
-            path: CapabilitiesPath {
-                port: self.path.port,
-                pd: self.path.pd,
-                role: PowerRole::Source,
-            },
+            path: self.path.sink_capabilities(),
         }
     }
 }
 
+// TODO: split this into source/sink so we can add pdos()
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CapabilitiesPath {
     pub port: u32,

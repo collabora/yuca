@@ -3,10 +3,23 @@ name = "yuca"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["tokio"]
+tokio = ["dep:tokio"]
+
 [dependencies]
+async-broadcast = "0.7.1"
+camino = "1.1.9"
+futures-core = "0.3.31"
+nix = { version = "0.29.0", features = ["socket", "uio"] }
 rustix = { version = "0.38.37", features = ["fs"] }
 strum = { version = "0.26.3", features = ["derive"] }
 thiserror = "1.0.64"
+tokio = { version = "1.42.0", features = ["net", "rt"], optional = true }
 
 [dev-dependencies]
+futures-lite = "2.5.0"
 googletest = "0.12.0"
+rstest = "0.23.0"
+rustix = { version = "0.38.37", features = ["fs", "use-libc"] }
+tokio = { version = "1.42.0", features = ["net", "rt", "macros", "time"] }

@@ -1,5 +1,6 @@
 pub mod sysfs;
 pub mod types;
+pub mod watcher;
 
 use std::num::ParseIntError;
 
@@ -19,6 +20,12 @@ pub enum Error {
 impl From<Errno> for Error {
     fn from(value: Errno) -> Self {
         Error::Io(value.into())
+    }
+}
+
+impl From<nix::errno::Errno> for Error {
+    fn from(value: nix::errno::Errno) -> Self {
+        Errno::from_raw_os_error(value as i32).into()
     }
 }
 
