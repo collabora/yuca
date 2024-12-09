@@ -1004,9 +1004,12 @@ impl<Parent: DevicePath> AltMode<Parent> {
     // do we need 'mode'? is it different from the already-present index?
 
     property!(active, rw(bool), with(PropertyBoolYesNo));
-    property!(supported_roles, ro(SupportedRoles));
     property!(svid, ro(u16), with(PropertyHexU16));
     property!(vdo, ro(u32), with(PropertyHexPrefixedU32));
+}
+
+impl AltMode<PortPath> {
+    property!(supported_roles, ro(SupportedRoles));
 }
 
 #[derive(Debug)]
