@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
 };
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use rustix::{
     fd::{AsFd, BorrowedFd, OwnedFd},
     fs::{openat, Dir, Mode, OFlags, CWD},
@@ -394,7 +394,7 @@ macro_rules! device_path_child_collection_getter {
 
 pub trait DevicePathParent: fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash {
     fn parse_syspath(p: &Utf8Path) -> Option<Self>;
-    fn build_syspath(&self, s: &mut String);
+    fn build_syspath(&self, p: &mut Utf8PathBuf);
 }
 
 impl<P: DevicePath> DevicePathParent for P {
@@ -403,12 +403,12 @@ impl<P: DevicePath> DevicePathParent for P {
         P::parse_basename(p.file_name()?, parent)
     }
 
-    fn build_syspath(&self, s: &mut String) {
-        self.parent().build_syspath(s);
-        if !s.is_empty() {
-            s.push('/');
-        }
-        self.build_basename(s);
+    fn build_syspath(&self, p: &mut Utf8PathBuf) {
+        self.parent().build_syspath(p);
+
+        let mut s = "".to_owned();
+        self.build_basename(&mut s);
+        p.push(s);
     }
 }
 
@@ -420,7 +420,7 @@ impl DevicePathParent for NoParent {
         Some(NoParent)
     }
 
-    fn build_syspath(&self, _s: &mut String) {}
+    fn build_syspath(&self, _p: &mut Utf8PathBuf) {}
 }
 
 pub trait DevicePathIndexed: DevicePath {
