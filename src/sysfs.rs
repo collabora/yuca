@@ -148,14 +148,13 @@ impl PropertyReader for PropertyHexU16 {
     type Read = u16;
 
     fn read(s: &str) -> Result<Self::Read> {
-        let s = s.strip_prefix("0x").ok_or(Error::Parse)?;
         u16::from_str_radix(s, 16).or(Err(Error::Parse))
     }
 }
 
-struct PropertyHexU32;
+struct PropertyHexPrefixedU32;
 
-impl PropertyReader for PropertyHexU32 {
+impl PropertyReader for PropertyHexPrefixedU32 {
     type Read = u32;
 
     fn read(s: &str) -> Result<Self::Read> {
@@ -1007,7 +1006,7 @@ impl<Parent: DevicePath> AltMode<Parent> {
     property!(active, rw(bool), with(PropertyBoolYesNo));
     property!(supported_roles, ro(SupportedRoles));
     property!(svid, ro(u16), with(PropertyHexU16));
-    property!(vdo, ro(u32), with(PropertyHexU32));
+    property!(vdo, ro(u32), with(PropertyHexPrefixedU32));
 }
 
 #[derive(Debug)]
@@ -1024,19 +1023,19 @@ impl IdentityPartner<'_> {
     property!(
         product_type_vdo1,
         ro(u32),
-        with(PropertyHexU32),
+        with(PropertyHexPrefixedU32),
         from(subdir("identity"))
     );
     property!(
         product_type_vdo2,
         ro(u32),
-        with(PropertyHexU32),
+        with(PropertyHexPrefixedU32),
         from(subdir("identity"))
     );
     property!(
         product_type_vdo3,
         ro(u32),
-        with(PropertyHexU32),
+        with(PropertyHexPrefixedU32),
         from(subdir("identity"))
     );
 }
@@ -1055,19 +1054,19 @@ impl IdentityCable<'_> {
     property!(
         product_type_vdo1,
         ro(u32),
-        with(PropertyHexU32),
+        with(PropertyHexPrefixedU32),
         from(subdir("identity"))
     );
     property!(
         product_type_vdo2,
         ro(u32),
-        with(PropertyHexU32),
+        with(PropertyHexPrefixedU32),
         from(subdir("identity"))
     );
     property!(
         product_type_vdo3,
         ro(u32),
-        with(PropertyHexU32),
+        with(PropertyHexPrefixedU32),
         from(subdir("identity"))
     );
 }
