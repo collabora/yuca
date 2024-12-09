@@ -6,8 +6,8 @@ use crate::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoleSelection<R> {
-    role: R,
-    supports_dual: bool,
+    pub role: R,
+    pub supports_dual: bool,
 }
 
 impl<Role: FromStr> FromStr for RoleSelection<Role>
@@ -74,8 +74,8 @@ pub enum Orientation {
 // XXX: should this really be a separate struct?
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportedRoles {
-    source: bool,
-    sink: bool,
+    pub source: bool,
+    pub sink: bool,
 }
 
 impl FromStr for SupportedRoles {

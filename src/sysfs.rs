@@ -1230,12 +1230,12 @@ impl SinkCapabilities {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PdoPath {
-    port: u32,
-    pd: u32,
+    pub port: u32,
+    pub pd: u32,
 
-    role: PowerRole,
-    index: u32,
-    supply: SupplyKind,
+    pub role: PowerRole,
+    pub index: u32,
+    pub supply: SupplyKind,
 }
 
 impl DevicePath for PdoPath {
