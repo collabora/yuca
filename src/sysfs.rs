@@ -1280,10 +1280,10 @@ impl DevicePath for PdoPath {
 
 #[derive(Debug)]
 pub enum SourcePdo {
-    FixedSupply(SourceCapabilitiesFixedSupply),
-    Battery(SourceCapabilitiesBattery),
-    VariableSupply(SourceCapabilitiesVariableSupply),
-    ProgrammableSupply(SourceCapabilitiesProgrammableSupply),
+    FixedSupply(SourcePdoFixedSupply),
+    Battery(SourcePdoBattery),
+    VariableSupply(SourcePdoVariableSupply),
+    ProgrammableSupply(SourcePdoProgrammableSupply),
 }
 
 impl Device for SourcePdo {
@@ -1291,15 +1291,13 @@ impl Device for SourcePdo {
 
     fn from_fd(dfd: OwnedFd, path: Self::Path) -> Self {
         match path.supply {
-            SupplyKind::FixedSupply => {
-                SourcePdo::FixedSupply(SourceCapabilitiesFixedSupply { dfd, path })
-            }
-            SupplyKind::Battery => SourcePdo::Battery(SourceCapabilitiesBattery { dfd, path }),
+            SupplyKind::FixedSupply => SourcePdo::FixedSupply(SourcePdoFixedSupply { dfd, path }),
+            SupplyKind::Battery => SourcePdo::Battery(SourcePdoBattery { dfd, path }),
             SupplyKind::VariableSupply => {
-                SourcePdo::VariableSupply(SourceCapabilitiesVariableSupply { dfd, path })
+                SourcePdo::VariableSupply(SourcePdoVariableSupply { dfd, path })
             }
             SupplyKind::ProgrammableSupply => {
-                SourcePdo::ProgrammableSupply(SourceCapabilitiesProgrammableSupply { dfd, path })
+                SourcePdo::ProgrammableSupply(SourcePdoProgrammableSupply { dfd, path })
             }
         }
     }
@@ -1316,10 +1314,10 @@ impl Device for SourcePdo {
 
 #[derive(Debug)]
 pub enum SinkPdo {
-    FixedSupply(SinkCapabilitiesFixedSupply),
-    Battery(SinkCapabilitiesBattery),
-    VariableSupply(SinkCapabilitiesVariableSupply),
-    ProgrammableSupply(SinkCapabilitiesProgrammableSupply),
+    FixedSupply(SinkPdoFixedSupply),
+    Battery(SinkPdoBattery),
+    VariableSupply(SinkPdoVariableSupply),
+    ProgrammableSupply(SinkPdoProgrammableSupply),
 }
 
 impl Device for SinkPdo {
@@ -1327,15 +1325,13 @@ impl Device for SinkPdo {
 
     fn from_fd(dfd: OwnedFd, path: Self::Path) -> Self {
         match path.supply {
-            SupplyKind::FixedSupply => {
-                SinkPdo::FixedSupply(SinkCapabilitiesFixedSupply { dfd, path })
-            }
-            SupplyKind::Battery => SinkPdo::Battery(SinkCapabilitiesBattery { dfd, path }),
+            SupplyKind::FixedSupply => SinkPdo::FixedSupply(SinkPdoFixedSupply { dfd, path }),
+            SupplyKind::Battery => SinkPdo::Battery(SinkPdoBattery { dfd, path }),
             SupplyKind::VariableSupply => {
-                SinkPdo::VariableSupply(SinkCapabilitiesVariableSupply { dfd, path })
+                SinkPdo::VariableSupply(SinkPdoVariableSupply { dfd, path })
             }
             SupplyKind::ProgrammableSupply => {
-                SinkPdo::ProgrammableSupply(SinkCapabilitiesProgrammableSupply { dfd, path })
+                SinkPdo::ProgrammableSupply(SinkPdoProgrammableSupply { dfd, path })
             }
         }
     }
@@ -1351,14 +1347,14 @@ impl Device for SinkPdo {
 }
 
 #[derive(Debug)]
-pub struct SourceCapabilitiesFixedSupply {
+pub struct SourcePdoFixedSupply {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_device!(SourceCapabilitiesFixedSupply, path(PdoPath));
+impl_device!(SourcePdoFixedSupply, path(PdoPath));
 
-impl SourceCapabilitiesFixedSupply {
+impl SourcePdoFixedSupply {
     // first item only!
     property!(dual_role_power, ro(bool), with(PropertyBoolIntegral));
     property!(usb_suspend_supported, ro(bool), with(PropertyBoolIntegral));
@@ -1382,14 +1378,14 @@ impl SourceCapabilitiesFixedSupply {
 }
 
 #[derive(Debug)]
-pub struct SinkCapabilitiesFixedSupply {
+pub struct SinkPdoFixedSupply {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_device!(SinkCapabilitiesFixedSupply, path(PdoPath));
+impl_device!(SinkPdoFixedSupply, path(PdoPath));
 
-impl SinkCapabilitiesFixedSupply {
+impl SinkPdoFixedSupply {
     // first item only!
     property!(dual_role_power, ro(bool), with(PropertyBoolIntegral));
     property!(higher_capability, ro(bool), with(PropertyBoolIntegral));
@@ -1413,70 +1409,70 @@ impl SinkCapabilitiesFixedSupply {
 }
 
 #[derive(Debug)]
-pub struct SourceCapabilitiesBattery {
+pub struct SourcePdoBattery {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_device!(SourceCapabilitiesBattery, path(PdoPath));
+impl_device!(SourcePdoBattery, path(PdoPath));
 
-impl SourceCapabilitiesBattery {
+impl SourcePdoBattery {
     property!(maximum_voltage, ro(Millivolts));
     property!(minimum_voltage, ro(Millivolts));
     property!(maximum_power, ro(Milliwatts));
 }
 
 #[derive(Debug)]
-pub struct SinkCapabilitiesBattery {
+pub struct SinkPdoBattery {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_device!(SinkCapabilitiesBattery, path(PdoPath));
+impl_device!(SinkPdoBattery, path(PdoPath));
 
-impl SinkCapabilitiesBattery {
+impl SinkPdoBattery {
     property!(maximum_voltage, ro(Millivolts));
     property!(minimum_voltage, ro(Millivolts));
     property!(operational_power, ro(Milliwatts));
 }
 
 #[derive(Debug)]
-pub struct SourceCapabilitiesVariableSupply {
+pub struct SourcePdoVariableSupply {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_device!(SourceCapabilitiesVariableSupply, path(PdoPath));
+impl_device!(SourcePdoVariableSupply, path(PdoPath));
 
-impl SourceCapabilitiesVariableSupply {
+impl SourcePdoVariableSupply {
     property!(maximum_voltage, ro(Millivolts));
     property!(minimum_voltage, ro(Millivolts));
     property!(maximum_current, ro(Milliamps));
 }
 
 #[derive(Debug)]
-pub struct SinkCapabilitiesVariableSupply {
+pub struct SinkPdoVariableSupply {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_device!(SinkCapabilitiesVariableSupply, path(PdoPath));
+impl_device!(SinkPdoVariableSupply, path(PdoPath));
 
-impl SinkCapabilitiesVariableSupply {
+impl SinkPdoVariableSupply {
     property!(maximum_voltage, ro(Millivolts));
     property!(minimum_voltage, ro(Millivolts));
     property!(operational_current, ro(Milliamps));
 }
 
 #[derive(Debug)]
-pub struct SourceCapabilitiesProgrammableSupply {
+pub struct SourcePdoProgrammableSupply {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_device!(SourceCapabilitiesProgrammableSupply, path(PdoPath));
+impl_device!(SourcePdoProgrammableSupply, path(PdoPath));
 
-impl SourceCapabilitiesProgrammableSupply {
+impl SourcePdoProgrammableSupply {
     property!(power_limited, ro(bool), with(PropertyBoolIntegral));
     property!(maximum_voltage, ro(Millivolts));
     property!(minimum_voltage, ro(Millivolts));
@@ -1484,14 +1480,14 @@ impl SourceCapabilitiesProgrammableSupply {
 }
 
 #[derive(Debug)]
-pub struct SinkCapabilitiesProgrammableSupply {
+pub struct SinkPdoProgrammableSupply {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_device!(SinkCapabilitiesProgrammableSupply, path(PdoPath));
+impl_device!(SinkPdoProgrammableSupply, path(PdoPath));
 
-impl SinkCapabilitiesProgrammableSupply {
+impl SinkPdoProgrammableSupply {
     property!(maximum_voltage, ro(Millivolts));
     property!(minimum_voltage, ro(Millivolts));
     property!(maximum_current, ro(Milliamps));
