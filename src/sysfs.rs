@@ -537,7 +537,7 @@ pub struct DeviceEntry<'fd, T: Device> {
     path: T::Path,
 }
 
-impl<'fd, T: Device> DeviceEntry<'fd, T> {
+impl<T: Device> DeviceEntry<'_, T> {
     pub fn path(&self) -> &T::Path {
         &self.path
     }
@@ -561,7 +561,7 @@ pub struct DeviceCollection<'fd, Child: Device> {
     phantom: PhantomData<Child>,
 }
 
-impl<'fd, Child: Device> DeviceCollection<'fd, Child> {
+impl<Child: Device> DeviceCollection<'_, Child> {
     pub fn iter(&self) -> Result<DeviceIter<'_, Child>> {
         Ok(DeviceIter {
             dfd: self.dfd.as_fd(),
@@ -585,7 +585,7 @@ impl<'fd, Child: Device> DeviceCollection<'fd, Child> {
     }
 }
 
-impl<'fd, Child: Device> DeviceCollection<'fd, Child>
+impl<Child: Device> DeviceCollection<'_, Child>
 where
     Child::Path: DevicePathIndexed,
 {
@@ -615,7 +615,7 @@ impl<'fd, Child: Device> Iterator for DeviceIter<'fd, Child> {
     type Item = Result<DeviceEntry<'fd, Child>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(entry) = self.dir.next() {
+        for entry in &mut self.dir {
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(err) => return Some(Err(err.into())),

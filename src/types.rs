@@ -287,7 +287,7 @@ impl VdoIdHeaderCable {
             0b011 => ProductTypeCable::Passive,
             0b100 => ProductTypeCable::Active,
             0b110 => ProductTypeCable::Vpd,
-            other => ProductTypeCable::Unknown(other as u8),
+            other => ProductTypeCable::Unknown(other),
         }
     }
 
