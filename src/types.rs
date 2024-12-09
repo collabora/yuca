@@ -345,8 +345,8 @@ impl FromStr for VdoProduct {
         }
 
         Ok(VdoProduct {
-            product_id: (n & 0xFFFF) as u16,
-            bcd_device: (n >> 16) as u16,
+            product_id: (n >> 16) as u16,
+            bcd_device: (n & 0xFFFF) as u16,
         })
     }
 }
