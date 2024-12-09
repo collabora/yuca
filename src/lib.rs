@@ -7,19 +7,25 @@ use std::num::ParseIntError;
 use rustix::io::Errno;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     #[error("I/O: {0}")]
-    Io(#[from] std::io::Error),
+    Io(std::io::ErrorKind),
     #[error("parse error")]
     Parse,
     #[error("identity attribute unavailable")]
     IdentityUnavailable,
 }
 
+impl From<std::io::Error> for Error {
+    fn from(value: std::io::Error) -> Self {
+        Error::Io(value.kind())
+    }
+}
+
 impl From<Errno> for Error {
     fn from(value: Errno) -> Self {
-        Error::Io(value.into())
+        std::io::Error::from(value).into()
     }
 }
 
