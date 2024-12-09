@@ -664,7 +664,6 @@ impl PortPath {
     }
 
     device_path_child_collection_getter!(alt_modes, AltModePath<PortPath>);
-    device_path_child_collection_getter!(plugs, PlugPath);
 }
 
 impl DevicePath for PortPath {
@@ -763,14 +762,6 @@ impl Port {
             path: self.path.partner(),
         }
     }
-
-    pub fn plugs(&self) -> DeviceCollection<'_, Plug> {
-        DeviceCollection {
-            dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
-            parent: self.path,
-            phantom: PhantomData,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -844,6 +835,10 @@ pub struct CablePath {
     pub port: u32,
 }
 
+impl CablePath {
+    device_path_child_collection_getter!(plugs, PlugPath);
+}
+
 impl DevicePath for CablePath {
     type Parent = PortPath;
 
@@ -880,6 +875,14 @@ impl Cable {
         }
     }
 
+    pub fn plugs(&self) -> DeviceCollection<'_, Plug> {
+        DeviceCollection {
+            dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
+            parent: self.path,
+            phantom: PhantomData,
+        }
+    }
+
     property!(cable_type, ro(CableType), from("type"));
     property!(plug_type, ro(PlugType));
     property!(usb_power_delivery_revision, ro(Revision));
@@ -896,11 +899,12 @@ impl PlugPath {
 }
 
 impl DevicePath for PlugPath {
-    type Parent = PortPath;
+    type Parent = CablePath;
 
     fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self> {
         let (a, b) = s.split_once('-')?;
-        let parent = Self::Parent::parse_basename(a, parent.parent())?;
+        let parent =
+            <Self::Parent as DevicePath>::Parent::parse_basename(a, parent.parent().parent())?;
 
         let b = b.strip_prefix("plug")?;
         let index = u32::from_str(b).ok()?;
@@ -912,8 +916,8 @@ impl DevicePath for PlugPath {
     }
 
     fn build_basename(&self, s: &mut String) {
-        self.parent().build_basename(s);
-        write!(s, "plug{}", self.index).unwrap();
+        self.parent().parent().build_basename(s);
+        write!(s, "-plug{}", self.index).unwrap();
     }
 
     fn parent(&self) -> Self::Parent {
