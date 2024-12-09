@@ -32,7 +32,7 @@ trait PropertyWriter: PropertyReader {
     fn write(dest: impl Write, value: &Self::Write) -> Result<()>;
 }
 
-pub trait PropertyReadable {
+pub trait PropertyReadable: fmt::Debug {
     type Read;
 
     fn get(&self) -> Result<Self::Read>;
@@ -48,6 +48,12 @@ struct PropertyImpl<'fd, P: PropertyReader> {
     dfd: BorrowedFd<'fd>,
     path: &'static str,
     _impl: PhantomData<P>,
+}
+
+impl<P: PropertyReader> fmt::Debug for PropertyImpl<'_, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(property:{})", self.path)
+    }
 }
 
 impl<'fd, P: PropertyReader> PropertyImpl<'fd, P> {
