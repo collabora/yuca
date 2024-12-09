@@ -1370,7 +1370,7 @@ impl SourceCapabilitiesFixedSupply {
     );
     property!(dual_role_data, ro(bool), with(PropertyBoolIntegral));
     property!(
-        unchuncked_extended_messages_supported,
+        unchunked_extended_messages_supported,
         ro(bool),
         with(PropertyBoolIntegral)
     );
@@ -1401,7 +1401,7 @@ impl SinkCapabilitiesFixedSupply {
     );
     property!(dual_role_data, ro(bool), with(PropertyBoolIntegral));
     property!(
-        unchuncked_external_messages,
+        unchunked_extended_messages_supported,
         ro(bool),
         with(PropertyBoolIntegral)
     );
