@@ -1001,9 +1001,8 @@ pub struct AltMode<Parent: DevicePath> {
 impl_device!(AltMode<Parent>, forall(<Parent: DevicePath>), path(AltModePath<Parent>));
 
 impl<Parent: DevicePath> AltMode<Parent> {
-    // do we need 'mode'? is it different from the already-present index?
-
     property!(active, rw(bool), with(PropertyBoolYesNo));
+    property!(mode, ro(u32));
     property!(svid, ro(u16), with(PropertyHexU16));
     property!(vdo, ro(u32), with(PropertyHexPrefixedU32));
 }
