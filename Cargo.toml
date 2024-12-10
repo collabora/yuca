@@ -1,30 +1,13 @@
-[package]
-name = "yuca"
+[workspace]
+members = [
+    "yuca",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = ["tokio"]
-tokio = ["dep:tokio"]
-
-[dependencies]
-async-broadcast = "0.7.1"
-camino = "1.1.9"
-event-listener = "5.3.1"
-futures-core = "0.3.31"
-nix = { version = "0.29.0", features = ["socket", "uio"] }
+[workspace.dependencies]
 rustix = { version = "0.38.37", features = ["fs"] }
-strum = { version = "0.26.3", features = ["derive"] }
-thiserror = "1.0.64"
-tokio = { version = "1.42.0", features = ["net", "macros", "rt"], optional = true }
-
-[dev-dependencies]
-futures-lite = "2.5.0"
-googletest = "0.13.0"
-rstest = "0.23.0"
-# Flip on use-libc here, because umockdev works via LD_PRELOAD and thus can't
-# manipulate direct syscalls.
-rustix = { version = "0.38.37", features = ["fs", "use-libc"] }
-# Add 'macros' and 'time' features.
-tokio = { version = "1.42.0", features = ["net", "macros", "rt", "time"] }
-umockdev = { git = "https://github.com/collabora/umockdev-rs" }
+tokio = { version = "1.42.0", features = ["net", "macros", "rt"] }

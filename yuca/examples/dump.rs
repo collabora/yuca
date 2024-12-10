@@ -62,6 +62,49 @@ macro_rules! dump_iter_errors {
 }
 
 fn main() {
+    if matches!(
+        std::env::args().skip(1).next().as_deref(),
+        Some("--watch-port")
+    ) {
+        use futures_lite::StreamExt;
+        use yuca::watcher::*;
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let (w, _) = Watcher::spawn_tokio(EventSource::Netlink).unwrap();
+
+            let mut port_added = PortPath::collection().added(&w).unwrap();
+            let t1 = tokio::task::spawn(async move {
+                while let Some(path) = port_added.next().await {
+                    let path = path.unwrap();
+                    println!("added: {path:?}");
+                }
+            });
+
+            let mut port_changed = PortPath::collection().changed(&w).unwrap();
+            let t2 = tokio::task::spawn(async move {
+                while let Some(path) = port_changed.next().await {
+                    let path = path.unwrap();
+                    println!("changed: {path:?}");
+                }
+            });
+
+            let mut port_removed = PortPath::collection().removed(&w).unwrap();
+            let t3 = tokio::task::spawn(async move {
+                while let Some(path) = port_removed.next().await {
+                    let path = path.unwrap();
+                    println!("removed: {path:?}");
+                }
+            });
+
+            let _ = tokio::join!(t1, t2, t3);
+        });
+        return;
+    }
+
     let dumper = Dumper { indent_level: 0 };
 
     for port in Port::collection().unwrap().iter_opened().unwrap() {
@@ -94,6 +137,16 @@ fn main() {
                 });
             }
 
+            for alt_mode in dump_iter_errors!(dumper, port, alt_modes) {
+                dump!(dumper, "Alt mode: {}", alt_mode.path().index);
+                dumper.indented(|dumper| {
+                    dump_prop!(dumper, alt_mode, active);
+                    dump_prop!(dumper, alt_mode, supported_roles);
+                    dump_prop!(dumper, alt_mode, svid);
+                    dump_prop!(dumper, alt_mode, vdo);
+                });
+            }
+
             if let Some(partner) = dump_getter_error!(dumper, port, partner) {
                 dump!(dumper, "Partner:");
                 dumper.indented(|dumper| {
@@ -115,7 +168,6 @@ fn main() {
                         dump!(dumper, "Alt mode: {}", alt_mode.path().index);
                         dumper.indented(|dumper| {
                             dump_prop!(dumper, alt_mode, active);
-                            dump_prop!(dumper, alt_mode, supported_roles);
                             dump_prop!(dumper, alt_mode, svid);
                             dump_prop!(dumper, alt_mode, vdo);
                         });
@@ -144,7 +196,7 @@ fn main() {
                                                     dump_prop!(
                                                         dumper,
                                                         caps,
-                                                        unchuncked_extended_messages_supported
+                                                        unchunked_extended_messages_supported
                                                     );
                                                     dump_prop!(dumper, caps, peak_current);
                                                     dump_prop!(dumper, caps, voltage);
@@ -203,7 +255,7 @@ fn main() {
                                                     dump_prop!(
                                                         dumper,
                                                         caps,
-                                                        unchuncked_external_messages
+                                                        unchunked_extended_messages_supported
                                                     );
                                                     dump_prop!(
                                                         dumper,
