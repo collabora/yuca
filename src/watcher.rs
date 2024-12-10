@@ -157,9 +157,12 @@ impl<P: Eq + Hash, V: Clone> Default for ChannelMap<P, V> {
 }
 
 pub(crate) struct DeviceChannels<P: DevicePath> {
+    pub(crate) on_any_added: ChannelMap<NoParent, P>,
+    pub(crate) on_any_removed: ChannelMap<NoParent, P>,
+    pub(crate) on_any_changed: ChannelMap<NoParent, P>,
     pub(crate) on_inventory_added: ChannelMap<P::Parent, P>,
-    pub(crate) on_inventory_removed: ChannelMap<P::Parent, P>,
     pub(crate) on_inventory_changed: ChannelMap<P::Parent, P>,
+    pub(crate) on_inventory_removed: ChannelMap<P::Parent, P>,
     pub(crate) on_added: ChannelMap<P, P>,
     pub(crate) on_changed: ChannelMap<P, P>,
     pub(crate) on_removed: ChannelMap<P, P>,
@@ -168,6 +171,9 @@ pub(crate) struct DeviceChannels<P: DevicePath> {
 impl<P: DevicePath> Default for DeviceChannels<P> {
     fn default() -> Self {
         Self {
+            on_any_added: Default::default(),
+            on_any_changed: Default::default(),
+            on_any_removed: Default::default(),
             on_inventory_added: Default::default(),
             on_inventory_changed: Default::default(),
             on_inventory_removed: Default::default(),
@@ -186,16 +192,19 @@ impl<P: DevicePath> DeviceChannels<P> {
 
         match uevent.action {
             Action::Bind => {
+                self.on_any_added.dispatch(NoParent, path);
                 self.on_inventory_added.dispatch(path.parent(), path);
                 self.on_added.dispatch(path, path);
             }
             Action::Change => {
+                self.on_any_changed.dispatch(NoParent, path);
                 self.on_inventory_changed.dispatch(path.parent(), path);
                 self.on_changed.dispatch(path, path);
             }
             Action::Unbind => {
                 self.on_removed.dispatch(path, path);
                 self.on_inventory_removed.dispatch(path.parent(), path);
+                self.on_any_removed.dispatch(NoParent, path);
             }
         }
     }

@@ -430,6 +430,10 @@ pub trait DevicePathIndexed: DevicePath {
 }
 
 pub trait DevicePathWatchable: DevicePath {
+    fn any_added(ctx: &Watcher) -> WatchResult<EventStream<Self>>;
+    fn any_changed(ctx: &Watcher) -> WatchResult<EventStream<Self>>;
+    fn any_removed(ctx: &Watcher) -> WatchResult<EventStream<Self>>;
+
     fn added(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>>;
     fn changed(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>>;
     fn removed(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>>;
@@ -438,6 +442,16 @@ pub trait DevicePathWatchable: DevicePath {
 macro_rules! impl_device_path_watchable {
     ($path:ty $(, forall($($args:tt)*))?, $channels:ident) => {
         impl $($($args)*)? DevicePathWatchable for $path {
+            fn any_added(ctx: &Watcher) -> WatchResult<EventStream<Self>> {
+                ctx.with_channels(|channels| channels.$channels.on_any_added.insert(NoParent))
+            }
+            fn any_changed(ctx: &Watcher) -> WatchResult<EventStream<Self>> {
+                ctx.with_channels(|channels| channels.$channels.on_any_changed.insert(NoParent))
+            }
+            fn any_removed(ctx: &Watcher) -> WatchResult<EventStream<Self>> {
+                ctx.with_channels(|channels| channels.$channels.on_any_removed.insert(NoParent))
+            }
+
             fn added(&self, ctx: &Watcher) -> WatchResult<EventStream<Self>> {
                 ctx.with_channels(|channels| channels.$channels.on_added.insert(*self))
             }
