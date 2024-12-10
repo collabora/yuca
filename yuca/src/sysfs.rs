@@ -20,6 +20,18 @@ use crate::{
     Error, Result,
 };
 
+mod sealed {
+    pub trait Sealed {}
+}
+
+use sealed::Sealed;
+
+macro_rules! impl_sealed {
+    ($ty:ty $(, forall($($args:tt)*))?) => {
+        impl $($($args)*)? Sealed for $ty {}
+    };
+}
+
 trait PropertyReader {
     type Read;
 
@@ -32,7 +44,7 @@ trait PropertyWriter: PropertyReader {
     fn write(dest: impl Write, value: &Self::Write) -> Result<()>;
 }
 
-pub trait PropertyReadable: fmt::Debug {
+pub trait PropertyReadable: Sealed + fmt::Debug {
     type Read;
 
     fn get(&self) -> Result<Self::Read>;
@@ -49,6 +61,8 @@ struct PropertyImpl<'fd, P: PropertyReader> {
     path: &'static str,
     _impl: PhantomData<P>,
 }
+
+impl_sealed!(PropertyImpl<'_, P>, forall(<P: PropertyReader>));
 
 impl<P: PropertyReader> fmt::Debug for PropertyImpl<'_, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -375,7 +389,9 @@ impl AsFd for MaybeOwnedFd<'_> {
     }
 }
 
-pub trait DevicePath: fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash + Sized {
+pub trait DevicePath:
+    Sealed + fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash + Sized
+{
     type Parent: DevicePathParent;
 
     fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self>;
@@ -392,7 +408,9 @@ macro_rules! device_path_child_collection_getter {
     };
 }
 
-pub trait DevicePathParent: fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash {
+pub trait DevicePathParent:
+    Sealed + fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash
+{
     fn parse_syspath(p: &Utf8Path) -> Option<Self>;
     fn build_syspath(&self, p: &mut Utf8PathBuf);
 }
@@ -414,6 +432,8 @@ impl<P: DevicePath> DevicePathParent for P {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NoParent;
+
+impl_sealed!(NoParent);
 
 impl DevicePathParent for NoParent {
     fn parse_syspath(_p: &Utf8Path) -> Option<Self> {
@@ -521,7 +541,7 @@ impl<Child: DevicePathWatchableFromParent> DevicePathCollection<Child> {
     }
 }
 
-pub trait Device: Sized {
+pub trait Device: Sealed + Sized {
     type Path: DevicePath;
 
     fn from_fd(dfd: OwnedFd, path: Self::Path) -> Self;
@@ -680,6 +700,8 @@ impl PortPath {
     device_path_child_collection_getter!(alt_modes, AltModePath<PortPath>);
 }
 
+impl_sealed!(PortPath);
+
 impl DevicePath for PortPath {
     type Parent = NoParent;
 
@@ -714,6 +736,7 @@ pub struct Port {
     path: PortPath,
 }
 
+impl_sealed!(Port);
 impl_device!(Port, path(PortPath));
 
 impl Port {
@@ -788,6 +811,8 @@ impl PartnerPath {
     device_path_child_collection_getter!(pds, PowerDeliveryPath);
 }
 
+impl_sealed!(PartnerPath);
+
 impl DevicePath for PartnerPath {
     type Parent = PortPath;
 
@@ -815,6 +840,7 @@ pub struct Partner {
     path: PartnerPath,
 }
 
+impl_sealed!(Partner);
 impl_device!(Partner, path(PartnerPath));
 
 impl Partner {
@@ -853,6 +879,8 @@ impl CablePath {
     device_path_child_collection_getter!(plugs, PlugPath);
 }
 
+impl_sealed!(CablePath);
+
 impl DevicePath for CablePath {
     type Parent = PortPath;
 
@@ -880,6 +908,7 @@ pub struct Cable {
     path: CablePath,
 }
 
+impl_sealed!(Cable);
 impl_device!(Cable, path(CablePath));
 
 impl Cable {
@@ -911,6 +940,8 @@ pub struct PlugPath {
 impl PlugPath {
     device_path_child_collection_getter!(alt_modes, AltModePath<PlugPath>);
 }
+
+impl_sealed!(PlugPath);
 
 impl DevicePath for PlugPath {
     type Parent = CablePath;
@@ -958,6 +989,7 @@ pub struct Plug {
     path: PlugPath,
 }
 
+impl_sealed!(Plug);
 impl_device!(Plug, path(PlugPath));
 
 impl Plug {
@@ -975,6 +1007,8 @@ pub struct AltModePath<Parent: DevicePath> {
     pub parent: Parent,
     pub index: u32,
 }
+
+impl_sealed!(AltModePath<Parent>, forall(<Parent: DevicePath>));
 
 impl<Parent: DevicePath> DevicePath for AltModePath<Parent> {
     type Parent = Parent;
@@ -1015,6 +1049,7 @@ pub struct AltMode<Parent: DevicePath> {
     path: AltModePath<Parent>,
 }
 
+impl_sealed!(AltMode<Parent>, forall(<Parent: DevicePath>));
 impl_device!(AltMode<Parent>, forall(<Parent: DevicePath>), path(AltModePath<Parent>));
 
 impl<Parent: DevicePath> AltMode<Parent> {
@@ -1123,6 +1158,8 @@ impl PowerDeliveryPath {
     }
 }
 
+impl_sealed!(PowerDeliveryPath);
+
 impl DevicePath for PowerDeliveryPath {
     type Parent = PartnerPath;
 
@@ -1164,6 +1201,7 @@ pub struct PowerDelivery {
     path: PowerDeliveryPath,
 }
 
+impl_sealed!(PowerDelivery);
 impl_device!(PowerDelivery, path(PowerDeliveryPath));
 
 impl PowerDelivery {
@@ -1189,6 +1227,8 @@ pub struct CapabilitiesPath {
     pub pd: u32,
     pub role: PowerRole,
 }
+
+impl_sealed!(CapabilitiesPath);
 
 impl DevicePath for CapabilitiesPath {
     type Parent = PowerDeliveryPath;
@@ -1221,6 +1261,7 @@ pub struct SourceCapabilities {
     path: CapabilitiesPath,
 }
 
+impl_sealed!(SourceCapabilities);
 impl_device!(SourceCapabilities, path(CapabilitiesPath));
 
 impl SourceCapabilities {
@@ -1240,6 +1281,7 @@ pub struct SinkCapabilities {
     path: CapabilitiesPath,
 }
 
+impl_sealed!(SinkCapabilities);
 impl_device!(SinkCapabilities, path(CapabilitiesPath));
 
 impl SinkCapabilities {
@@ -1261,6 +1303,8 @@ pub struct PdoPath {
     pub index: u32,
     pub supply: SupplyKind,
 }
+
+impl_sealed!(PdoPath);
 
 impl DevicePath for PdoPath {
     type Parent = CapabilitiesPath;
@@ -1299,6 +1343,8 @@ pub enum SourcePdo {
     ProgrammableSupply(SourcePdoProgrammableSupply),
 }
 
+impl_sealed!(SourcePdo);
+
 impl Device for SourcePdo {
     type Path = PdoPath;
 
@@ -1333,6 +1379,8 @@ pub enum SinkPdo {
     ProgrammableSupply(SinkPdoProgrammableSupply),
 }
 
+impl_sealed!(SinkPdo);
+
 impl Device for SinkPdo {
     type Path = PdoPath;
 
@@ -1365,6 +1413,7 @@ pub struct SourcePdoFixedSupply {
     path: PdoPath,
 }
 
+impl_sealed!(SourcePdoFixedSupply);
 impl_device!(SourcePdoFixedSupply, path(PdoPath));
 
 impl SourcePdoFixedSupply {
@@ -1396,6 +1445,7 @@ pub struct SinkPdoFixedSupply {
     path: PdoPath,
 }
 
+impl_sealed!(SinkPdoFixedSupply);
 impl_device!(SinkPdoFixedSupply, path(PdoPath));
 
 impl SinkPdoFixedSupply {
@@ -1427,6 +1477,7 @@ pub struct SourcePdoBattery {
     path: PdoPath,
 }
 
+impl_sealed!(SourcePdoBattery);
 impl_device!(SourcePdoBattery, path(PdoPath));
 
 impl SourcePdoBattery {
@@ -1441,6 +1492,7 @@ pub struct SinkPdoBattery {
     path: PdoPath,
 }
 
+impl_sealed!(SinkPdoBattery);
 impl_device!(SinkPdoBattery, path(PdoPath));
 
 impl SinkPdoBattery {
@@ -1455,6 +1507,7 @@ pub struct SourcePdoVariableSupply {
     path: PdoPath,
 }
 
+impl_sealed!(SourcePdoVariableSupply);
 impl_device!(SourcePdoVariableSupply, path(PdoPath));
 
 impl SourcePdoVariableSupply {
@@ -1469,6 +1522,7 @@ pub struct SinkPdoVariableSupply {
     path: PdoPath,
 }
 
+impl_sealed!(SinkPdoVariableSupply);
 impl_device!(SinkPdoVariableSupply, path(PdoPath));
 
 impl SinkPdoVariableSupply {
@@ -1483,6 +1537,7 @@ pub struct SourcePdoProgrammableSupply {
     path: PdoPath,
 }
 
+impl_sealed!(SourcePdoProgrammableSupply);
 impl_device!(SourcePdoProgrammableSupply, path(PdoPath));
 
 impl SourcePdoProgrammableSupply {
@@ -1498,6 +1553,7 @@ pub struct SinkPdoProgrammableSupply {
     path: PdoPath,
 }
 
+impl_sealed!(SinkPdoProgrammableSupply);
 impl_device!(SinkPdoProgrammableSupply, path(PdoPath));
 
 impl SinkPdoProgrammableSupply {
