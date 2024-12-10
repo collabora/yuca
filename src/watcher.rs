@@ -84,6 +84,7 @@ pub struct Overflowed {
     pub missed_events: u64,
 }
 
+#[derive(Debug)]
 pub struct EventStream<T: Clone>(async_broadcast::Receiver<T>);
 
 impl<T: Clone> Stream for EventStream<T> {
