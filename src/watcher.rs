@@ -219,8 +219,7 @@ struct SharedDispatchContext {
     fd: OwnedFd,
     channels: AllChannels,
     done: AtomicBool,
-    #[cfg(test)]
-    enable_umockdev_events: AtomicBool,
+    enable_umockdev_events_for_testing: AtomicBool,
 }
 
 pub enum EventSource {
@@ -239,7 +238,6 @@ pub struct EventDispatcher(Arc<SharedDispatchContext>);
 
 impl EventDispatcher {
     const UEVENT_GROUPS_KERNEL: u32 = 1;
-    #[cfg(test)]
     const UEVENT_GROUPS_UDEV: u32 = 2;
 
     fn new(source: EventSource) -> Result<Self> {
@@ -262,8 +260,7 @@ impl EventDispatcher {
             fd,
             channels: Default::default(),
             done: AtomicBool::new(false),
-            #[cfg(test)]
-            enable_umockdev_events: AtomicBool::new(false),
+            enable_umockdev_events_for_testing: AtomicBool::new(false),
         })))
     }
 
@@ -274,8 +271,10 @@ impl EventDispatcher {
         let mut uevent_buf = vec![0; UEVENT_BUFFER_SIZE];
         let mut cmsg_buf = cmsg_space!(UnixCredentials);
 
-        #[cfg(test)]
-        let enable_umockdev_events = self.0.enable_umockdev_events.load(Ordering::Relaxed);
+        let enable_umockdev = self
+            .0
+            .enable_umockdev_events_for_testing
+            .load(Ordering::Relaxed);
 
         let bytes = {
             let mut iov = [IoSliceMut::new(&mut uevent_buf)];
@@ -295,17 +294,13 @@ impl EventDispatcher {
             //     return Ok(None);
             // };
             if !(addr.pid() == 0
-                && (addr.groups() == Self::UEVENT_GROUPS_KERNEL || {
-                    #[cfg(test)]
-                    {
+                && (addr.groups() == Self::UEVENT_GROUPS_KERNEL
+                    || (
                         // umockdev only emits uevents mocking *udev's*, so
                         // make sure to accept uevents from that source only in
                         // this scenario.
-                        enable_umockdev_events && addr.groups() == Self::UEVENT_GROUPS_UDEV
-                    }
-                    #[cfg(not(test))]
-                    false
-                }))
+                        enable_umockdev && addr.groups() == Self::UEVENT_GROUPS_UDEV
+                    )))
             {
                 return Ok(None);
             }
@@ -315,8 +310,7 @@ impl EventDispatcher {
 
         uevent_buf.drain(bytes..);
 
-        #[cfg(test)]
-        if enable_umockdev_events && uevent_buf.starts_with(b"libudev\0\xfe\xed\xca\xfe") {
+        if enable_umockdev && uevent_buf.starts_with(b"libudev\0\xfe\xed\xca\xfe") {
             // The udev header is 40 bytes, but Uevent's parser above expects
             // at least one extra null-terminated line at the start, so just
             // drop off 39 bytes and treat the remaining one as the null.
@@ -462,10 +456,10 @@ impl Watcher {
         Ok(cb(&ctx.channels))
     }
 
-    #[cfg(test)]
-    pub fn enable_umockdev_events(&self) -> WatchResult<()> {
+    pub fn enable_umockdev_events_for_testing(&self) -> WatchResult<()> {
         let ctx = self.0 .0.upgrade().ok_or(DispatcherDead)?;
-        ctx.enable_umockdev_events.store(true, Ordering::Relaxed);
+        ctx.enable_umockdev_events_for_testing
+            .store(true, Ordering::Relaxed);
         Ok(())
     }
 }
