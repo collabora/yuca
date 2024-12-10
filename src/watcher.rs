@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    future::Future,
     hash::Hash,
     io::IoSliceMut,
     ops::ControlFlow,
@@ -12,12 +13,13 @@ use std::{
 };
 
 use camino::Utf8Path;
+use event_listener::Event;
 use futures_core::Stream;
 use nix::{
     cmsg_space,
     sys::socket::{
-        bind, recvmsg, shutdown, socket, AddressFamily, MsgFlags, NetlinkAddr, Shutdown, SockFlag,
-        SockProtocol, SockType, UnixCredentials,
+        bind, recvmsg, socket, AddressFamily, MsgFlags, NetlinkAddr, SockFlag, SockProtocol,
+        SockType, UnixCredentials,
     },
 };
 use rustix::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
@@ -228,6 +230,7 @@ struct SharedDispatchContext {
     fd: OwnedFd,
     channels: AllChannels,
     done: AtomicBool,
+    done_event: Event,
     enable_umockdev_events_for_testing: AtomicBool,
 }
 
@@ -269,6 +272,7 @@ impl EventDispatcher {
             fd,
             channels: Default::default(),
             done: AtomicBool::new(false),
+            done_event: Event::new(),
             enable_umockdev_events_for_testing: AtomicBool::new(false),
         })))
     }
@@ -356,9 +360,19 @@ impl EventDispatcher {
         }
     }
 
+    pub fn wait_done(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let listen = self.0.done_event.listen();
+
+        if self.0.done.load(Ordering::Acquire) {
+            Box::pin(std::future::ready(()))
+        } else {
+            Box::pin(listen)
+        }
+    }
+
     pub fn dispatch_pending(&self) -> Result<ControlFlow<(), ()>> {
         loop {
-            if self.0.done.load(Ordering::Relaxed) {
+            if self.0.done.load(Ordering::Acquire) {
                 return Ok(ControlFlow::Break(()));
             }
 
@@ -415,8 +429,8 @@ struct WatcherInner(Weak<SharedDispatchContext>);
 impl Drop for WatcherInner {
     fn drop(&mut self) {
         if let Some(ctx) = self.0.upgrade() {
-            ctx.done.store(true, Ordering::Relaxed);
-            _ = shutdown(ctx.fd.as_raw_fd(), Shutdown::Both);
+            ctx.done.store(true, Ordering::Release);
+            ctx.done_event.notify(usize::MAX);
         }
     }
 }
@@ -446,14 +460,21 @@ impl Watcher {
         let fd = tokio::io::unix::AsyncFd::new(dispatcher)?;
 
         let handle = tokio::task::spawn(async move {
+            let mut done = fd.get_ref().wait_done();
+
             loop {
-                let mut ready = fd.readable().await?;
+                let mut ready = tokio::select! {
+                    ready = fd.readable() => ready?,
+                    _ = &mut done => break,
+                };
                 let res = fd.get_ref().dispatch_pending()?;
                 ready.clear_ready();
                 if res.is_break() {
-                    return Ok::<(), Error>(());
+                    break;
                 }
             }
+
+            Ok::<(), Error>(())
         });
 
         Ok((watcher, handle))
@@ -506,5 +527,33 @@ mod tests {
             )),
             err(pat!(Error::Parse))
         );
+    }
+
+    #[test]
+    fn dispatcher_death() {
+        let (w, ed) = Watcher::new_with_manual_dispatcher(EventSource::Netlink).unwrap();
+        std::mem::drop(ed);
+
+        assert_that!(PortPath { port: 0 }.added(&w), err(eq(&DispatcherDead)));
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn watcher_death() {
+        use std::time::Duration;
+
+        use tokio::time::{sleep, timeout};
+
+        const TIMEOUT: Duration = Duration::from_millis(25);
+
+        let (w, jh) = Watcher::spawn_tokio(EventSource::Netlink).unwrap();
+        let w1 = w.clone();
+
+        sleep(TIMEOUT).await;
+
+        std::mem::drop(w);
+        std::mem::drop(w1);
+
+        assert_that!(timeout(TIMEOUT, jh).await, ok(ok(ok(()))));
     }
 }

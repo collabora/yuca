@@ -748,6 +748,7 @@ version = "0.1.0"
 dependencies = [
  "async-broadcast",
  "camino",
+ "event-listener",
  "futures-core",
  "futures-lite",
  "googletest",
