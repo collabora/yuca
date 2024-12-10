@@ -992,7 +992,6 @@ impl<Parent: DevicePath> DevicePathIndexed for AltModePath<Parent> {
     }
 }
 
-impl_device_path_watchable_from_parent!(AltModePath<PortPath>, port_alt_mode);
 impl_device_path_watchable_from_parent!(AltModePath<PartnerPath>, partner_alt_mode);
 impl_device_path_watchable_from_parent!(AltModePath<PlugPath>, plug_alt_mode);
 

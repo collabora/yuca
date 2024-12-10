@@ -207,7 +207,6 @@ pub(crate) struct AllChannels {
     pub(crate) partner: DeviceChannels<PartnerPath>,
     pub(crate) plug: DeviceChannels<PlugPath>,
     pub(crate) cable: DeviceChannels<CablePath>,
-    pub(crate) port_alt_mode: DeviceChannels<AltModePath<PortPath>>,
     pub(crate) partner_alt_mode: DeviceChannels<AltModePath<PartnerPath>>,
     pub(crate) plug_alt_mode: DeviceChannels<AltModePath<PlugPath>>,
     pub(crate) pd: DeviceChannels<PowerDeliveryPath>,
@@ -340,7 +339,6 @@ impl EventDispatcher {
                 // It's not clear from the uevent fields as to whether this is
                 // for a port alt mode or partner alt mode, so just try both;
                 // whichever can parse its path is presumably the winner.
-                self.0.channels.port_alt_mode.dispatch_uevent(&uevent);
                 self.0.channels.partner_alt_mode.dispatch_uevent(&uevent);
                 self.0.channels.plug_alt_mode.dispatch_uevent(&uevent);
             }
