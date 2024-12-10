@@ -987,7 +987,7 @@ mod feat_tokio {
 
     const TIMEOUT: Duration = Duration::from_millis(25);
 
-    async fn consume_watcher(w: Watcher, jh: JoinHandle<std::result::Result<(), Error>>) {
+    async fn consume_watcher(w: Watcher, jh: JoinHandle<yuca::Result<()>>) {
         std::mem::drop(w);
         timeout(TIMEOUT, jh).await.unwrap().unwrap().unwrap();
     }
