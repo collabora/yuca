@@ -419,11 +419,11 @@ impl Drop for WatcherInner {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 #[error("watcher is no longer handling events")]
-pub struct WatcherDead;
+pub struct DispatcherDead;
 
-pub type WatchResult<T> = std::result::Result<T, WatcherDead>;
+pub type WatchResult<T> = std::result::Result<T, DispatcherDead>;
 
 #[derive(Clone)]
 pub struct Watcher(Arc<WatcherInner>);
@@ -458,13 +458,13 @@ impl Watcher {
     }
 
     pub(crate) fn with_channels<R>(&self, cb: impl FnOnce(&'_ AllChannels) -> R) -> WatchResult<R> {
-        let ctx = self.0 .0.upgrade().ok_or(WatcherDead)?;
+        let ctx = self.0 .0.upgrade().ok_or(DispatcherDead)?;
         Ok(cb(&ctx.channels))
     }
 
     #[cfg(test)]
     pub fn enable_umockdev_events(&self) -> WatchResult<()> {
-        let ctx = self.0 .0.upgrade().ok_or(WatcherDead)?;
+        let ctx = self.0 .0.upgrade().ok_or(DispatcherDead)?;
         ctx.enable_umockdev_events.store(true, Ordering::Relaxed);
         Ok(())
     }
