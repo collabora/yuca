@@ -322,7 +322,7 @@ impl EventDispatcher {
     }
 
     fn dispatch_uevent(&self, uevent: Uevent) {
-        if uevent.subsystem != "typec" {
+        if !matches!(uevent.subsystem, "typec" | "usb_power_delivery") {
             return;
         }
 
