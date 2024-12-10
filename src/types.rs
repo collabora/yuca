@@ -408,7 +408,7 @@ mod tests {
 
         assert_that!(
             RoleSelection::<Abc>::from_str("[a]"),
-            ok(eq(&RoleSelection {
+            ok(eq(RoleSelection {
                 role: Abc::A,
                 supports_dual: false,
             }))
@@ -416,7 +416,7 @@ mod tests {
 
         assert_that!(
             RoleSelection::<Abc>::from_str("[a] b"),
-            ok(eq(&RoleSelection {
+            ok(eq(RoleSelection {
                 role: Abc::A,
                 supports_dual: true,
             }))
@@ -424,7 +424,7 @@ mod tests {
 
         assert_that!(
             RoleSelection::<Abc>::from_str("a [b]"),
-            ok(eq(&RoleSelection {
+            ok(eq(RoleSelection {
                 role: Abc::B,
                 supports_dual: true,
             }))
@@ -432,7 +432,7 @@ mod tests {
 
         assert_that!(
             RoleSelection::<Abc>::from_str("a b [c]"),
-            ok(eq(&RoleSelection {
+            ok(eq(RoleSelection {
                 role: Abc::C,
                 supports_dual: true,
             }))

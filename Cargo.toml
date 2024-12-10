@@ -20,7 +20,11 @@ tokio = { version = "1.42.0", features = ["net", "macros", "rt"], optional = tru
 
 [dev-dependencies]
 futures-lite = "2.5.0"
-googletest = "0.12.0"
+googletest = "0.13.0"
 rstest = "0.23.0"
+# Flip on use-libc here, because umockdev works via LD_PRELOAD and thus can't
+# manipulate direct syscalls.
 rustix = { version = "0.38.37", features = ["fs", "use-libc"] }
+# Add 'macros' and 'time' features.
 tokio = { version = "1.42.0", features = ["net", "macros", "rt", "time"] }
+umockdev = { git = "https://github.com/collabora/umockdev-rs" }
