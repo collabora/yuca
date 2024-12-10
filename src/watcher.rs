@@ -376,7 +376,7 @@ impl EventDispatcher {
 
                     self.dispatch_uevent(uevent);
                 }
-                Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(Error::Io(std::io::ErrorKind::WouldBlock)) => {
                     return Ok(ControlFlow::Continue(()));
                 }
                 Err(err) => return Err(err),
