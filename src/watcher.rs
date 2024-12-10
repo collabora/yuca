@@ -122,7 +122,8 @@ impl<P: Eq + Hash, V: Clone> ChannelMap<P, V> {
         let mut map = self.0.lock().unwrap();
         let channel = map.entry(path).or_insert_with(|| {
             // TODO: customize the cap?
-            let (send, recv) = async_broadcast::broadcast(128);
+            let (send, mut recv) = async_broadcast::broadcast(128);
+            recv.set_overflow(true);
             Channel {
                 send,
                 recv: recv.deactivate(),
