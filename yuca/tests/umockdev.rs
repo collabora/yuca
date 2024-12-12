@@ -321,12 +321,12 @@ fn test_port_cable_plug(testbed: LockingTestbed) {
         .plugs()
         .list_opened()
         .unwrap();
-    plugs.sort_by_key(|m| m.path().index);
+    plugs.sort_by_key(|m| m.path().plug);
 
     assert_that!(
         plugs,
         elements_are![all![
-            property!(&Plug.path(), eq(&PlugPath { port: 0, index: 0 })),
+            property!(&Plug.path(), eq(&PlugPath { port: 0, plug: 0 })),
             // Nothing else to check for now.
         ]],
     );
@@ -340,12 +340,12 @@ fn test_port_cable_plug(testbed: LockingTestbed) {
         .plugs()
         .list_opened()
         .unwrap();
-    plugs.sort_by_key(|m| m.path().index);
+    plugs.sort_by_key(|m| m.path().plug);
 
     assert_that!(
         plugs,
         elements_are![all![
-            property!(&Plug.path(), eq(&PlugPath { port: 1, index: 0 })),
+            property!(&Plug.path(), eq(&PlugPath { port: 1, plug: 0 })),
             // Nothing else to check for now.
         ]],
     );
@@ -1158,8 +1158,8 @@ mod feat_tokio {
     async fn test_watch_port_cable_plug(testbed: LockingTestbed) {
         do_test_watch(
             testbed,
-            PlugPath { port: 0, index: 0 },
-            PlugPath { port: 1, index: 0 },
+            PlugPath { port: 0, plug: 0 },
+            PlugPath { port: 1, plug: 0 },
         )
         .await;
     }
@@ -1167,7 +1167,7 @@ mod feat_tokio {
     #[rstest]
     #[tokio::test]
     async fn test_watch_port_cable_plug_from_parent(testbed: LockingTestbed) {
-        do_test_watch_from_parent(testbed, PlugPath { port: 0, index: 0 }, CablePath::plugs).await;
+        do_test_watch_from_parent(testbed, PlugPath { port: 0, plug: 0 }, CablePath::plugs).await;
     }
 
     // TODO: we have no test data for these!

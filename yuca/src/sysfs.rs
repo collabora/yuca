@@ -934,7 +934,7 @@ impl Cable {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlugPath {
     pub port: u32,
-    pub index: u32,
+    pub plug: u32,
 }
 
 impl PlugPath {
@@ -952,17 +952,17 @@ impl DevicePath for PlugPath {
             <Self::Parent as DevicePath>::Parent::parse_basename(a, parent.parent().parent())?;
 
         let b = b.strip_prefix("plug")?;
-        let index = u32::from_str(b).ok()?;
+        let plug = u32::from_str(b).ok()?;
 
         Some(Self {
             port: parent.port,
-            index,
+            plug,
         })
     }
 
     fn build_basename(&self, s: &mut String) {
         self.parent().parent().build_basename(s);
-        write!(s, "-plug{}", self.index).unwrap();
+        write!(s, "-plug{}", self.plug).unwrap();
     }
 
     fn parent(&self) -> Self::Parent {
@@ -976,7 +976,7 @@ impl DevicePathIndexed for PlugPath {
     fn child_of(parent: Self::Parent, index: Self::Index) -> Self {
         PlugPath {
             port: parent.port,
-            index,
+            plug: index,
         }
     }
 }
