@@ -81,16 +81,16 @@ impl<'a> Uevent<'a> {
 }
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
-#[error("channel overflowed, missed {missed_events} events")]
+#[error("stream overflowed, missed {missed_events} events")]
 pub struct Overflowed {
     pub missed_events: u64,
 }
 
 #[derive(Debug)]
-pub struct EventStream<T: Clone>(async_broadcast::Receiver<T>);
+pub struct DevicePathStream<P: DevicePath>(async_broadcast::Receiver<P>);
 
-impl<T: Clone> Stream for EventStream<T> {
-    type Item = std::result::Result<T, Overflowed>;
+impl<P: DevicePath> Stream for DevicePathStream<P> {
+    type Item = std::result::Result<P, Overflowed>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
@@ -117,10 +117,10 @@ struct Channel<T> {
     recv: async_broadcast::InactiveReceiver<T>,
 }
 
-pub(crate) struct ChannelMap<P: Eq + Hash, V: Clone>(Mutex<HashMap<P, Channel<V>>>);
+pub(crate) struct ChannelMap<P: Eq + Hash, V: DevicePath>(Mutex<HashMap<P, Channel<V>>>);
 
-impl<P: Eq + Hash, V: Clone> ChannelMap<P, V> {
-    pub(crate) fn insert(&self, path: P) -> EventStream<V> {
+impl<P: Eq + Hash, V: DevicePath> ChannelMap<P, V> {
+    pub(crate) fn insert(&self, path: P) -> DevicePathStream<V> {
         let mut map = self.0.lock().unwrap();
         let channel = map.entry(path).or_insert_with(|| {
             // TODO: customize the cap?
@@ -131,7 +131,7 @@ impl<P: Eq + Hash, V: Clone> ChannelMap<P, V> {
                 recv: recv.deactivate(),
             }
         });
-        EventStream(channel.recv.activate_cloned())
+        DevicePathStream(channel.recv.activate_cloned())
     }
 
     fn dispatch(&self, path: P, value: V) {
@@ -152,7 +152,7 @@ impl<P: Eq + Hash, V: Clone> ChannelMap<P, V> {
     }
 }
 
-impl<P: Eq + Hash, V: Clone> Default for ChannelMap<P, V> {
+impl<P: Eq + Hash, V: DevicePath> Default for ChannelMap<P, V> {
     fn default() -> Self {
         Self(Mutex::new(Default::default()))
     }
