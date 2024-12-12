@@ -63,14 +63,6 @@ pub enum PowerRole {
     Sink,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
-#[strum(serialize_all = "snake_case")]
-pub enum Orientation {
-    Unknown,
-    Normal,
-    Reverse,
-}
-
 // XXX: should this really be a separate struct?
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SupportedRoles {

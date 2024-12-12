@@ -240,12 +240,6 @@ pub enum EventSource {
     // Udev,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DispatchResult {
-    KeepReading,
-    NoMoreEvents,
-}
-
 pub struct EventDispatcher(Arc<SharedDispatchContext>);
 
 impl EventDispatcher {
