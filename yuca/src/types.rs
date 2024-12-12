@@ -1,12 +1,17 @@
+//! Various types returned from [`sysfs`](crate::sysfs)'s properties.
+
 use std::str::FromStr;
 
 use strum::{Display, EnumString};
 
 use crate::{Error, Result};
 
+/// A single role selected from a potentially-dual-role property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoleSelection<R> {
+    /// The actual selected role.
     pub role: R,
+    /// Whether or not the selected role is one of multiple available.
     pub supports_dual: bool,
 }
 
@@ -49,6 +54,7 @@ pub enum PortType {
     Dual,
 }
 
+/// A port's role in data transmission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum DataRole {
@@ -56,6 +62,7 @@ pub enum DataRole {
     Device,
 }
 
+/// A port's role in power transmission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum PowerRole {
@@ -92,21 +99,27 @@ impl FromStr for SupportedRoles {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString)]
 #[strum(serialize_all = "snake_case")]
 pub enum PowerOperationMode {
+    /// Standard USB (non-type-C) power negotiation.
     Default,
+    /// Fixed at 1.5A @ 5V.
     #[strum(serialize = "1.5A")]
     TypeC1_5A,
+    /// Fixed at 3.0A @ 5V.
     #[strum(serialize = "3A")]
     TypeC3_0A,
+    /// USB power delivery support, for negotiating higher power draws.
     #[strum(serialize = "usb_power_delivery")]
     PowerDelivery,
 }
 
+/// The type of a USB-C cable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString)]
 #[strum(serialize_all = "snake_case")]
 pub enum CableType {
     NotCable, // ???
     Passive,
     Active,
+    // A captive cable for a "Vconn Powered USB Device".
     Vpd,
 }
 
@@ -120,6 +133,7 @@ pub enum PlugType {
     Captive,
 }
 
+/// A `[major].[minor]` version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Revision {
     pub major: u8,
@@ -143,6 +157,8 @@ impl FromStr for Revision {
 // kernel should be taking care of distinguishing the values properly? Or maybe
 // it's still possible to get there.
 
+// The type of a [`crate::sysfs::Partner`]'s Upstream-Facing Port, as read from
+// the [identity header](VdoIdHeader).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductTypePartnerUfp {
     NotUfp,
@@ -152,6 +168,8 @@ pub enum ProductTypePartnerUfp {
     Unknown(u8),
 }
 
+// The type of a [`crate::sysfs::Partner`]'s Downstream-Facing Port, as read
+// from the [identity header](VdoIdHeader).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductTypePartnerDfp {
     NotDfp,
@@ -161,8 +179,11 @@ pub enum ProductTypePartnerDfp {
     Unknown(u8),
 }
 
+/// The type of a [`crate::sysfs::Cable`], as read from the [identity
+/// header](VdoIdHeader).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductTypeCable {
+    // XXX: will this always match the `cable_type` anyway?
     NotCable,
     Passive,
     Active,
@@ -170,6 +191,8 @@ pub enum ProductTypeCable {
     Unknown(u8),
 }
 
+/// The type of a [`crate::sysfs::Partner`]'s connector, as read from the
+/// [identity header](VdoIdHeader).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectorType {
     Unknown(u8),
@@ -225,7 +248,7 @@ impl VdoIdHeader {
     }
 }
 
-/// ID Header VDO, SOP (6.4.4.3.1.1)
+/// A parsed identity header from a [`crate::sysfs::Partner`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VdoIdHeaderPartner(pub VdoIdHeader);
 
@@ -267,12 +290,11 @@ impl FromStr for VdoIdHeaderPartner {
     }
 }
 
-/// ID Header VDO, SOP' (6.4.4.3.1.1)
+/// A parsed identity header from a [`crate::sysfs::Cable`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VdoIdHeaderCable(pub VdoIdHeader);
 
 impl VdoIdHeaderCable {
-    /// Cable product type.
     pub fn product_type(&self) -> ProductTypeCable {
         match self.0.product_type_0() {
             0b000 => ProductTypeCable::NotCable,
@@ -303,6 +325,7 @@ impl FromStr for VdoIdHeaderCable {
     }
 }
 
+/// An XID from a USB-IF-certified device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VdoCertStat(pub u32);
 
@@ -322,7 +345,9 @@ impl FromStr for VdoCertStat {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VdoProduct {
+    /// The device's product ID.
     pub product_id: u16,
+    /// The device's release number, as binary-coded decimal.
     pub bcd_device: u16,
 }
 
@@ -349,6 +374,7 @@ fn parse_unit_suffixed(s: &str, suffix: &str) -> Result<u32> {
         .ok_or(Error::Parse)
 }
 
+/// A number with the unit mV.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Millivolts(pub u32);
 
@@ -360,6 +386,7 @@ impl FromStr for Millivolts {
     }
 }
 
+/// A number with the unit mA.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Milliamps(pub u32);
 
@@ -371,6 +398,7 @@ impl FromStr for Milliamps {
     }
 }
 
+/// A number with the unit mW.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Milliwatts(pub u32);
 

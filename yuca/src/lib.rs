@@ -1,3 +1,6 @@
+#![doc = include_str!("../../README.md")]
+#![doc = include_str!("../../docs/overview.md")]
+
 pub mod sysfs;
 pub mod types;
 pub mod watcher;

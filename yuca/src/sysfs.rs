@@ -1,3 +1,5 @@
+//! Accessing the sysfs.
+
 use std::{
     fmt::{self, Write as FmtWrite},
     fs::File,
@@ -44,15 +46,19 @@ trait PropertyWriter: PropertyReader {
     fn write(dest: impl Write, value: &Self::Write) -> Result<()>;
 }
 
+/// A readable sysfs property.
 pub trait PropertyReadable: Sealed + fmt::Debug {
     type Read;
 
+    // Reads the given property from the sysfs.
     fn get(&self) -> Result<Self::Read>;
 }
 
+// A readable and writable sysfs property.
 pub trait PropertyWritable: PropertyReadable {
     type Write;
 
+    // Sets the given property on the sysfs to the value.
     fn set(&self, value: &Self::Write) -> Result<()>;
 }
 
@@ -314,12 +320,14 @@ macro_rules! property {
         $name:ident,
         returns($ret:ty),
         with($impl:ty),
-        from($from:literal)
+        from($from:literal),
+        $($rest:tt)*
     ) => {
         property!(_stage_final, $name,
             returns($ret),
             with($impl),
-            from($from));
+            from($from),
+            $($rest)*);
     };
 
     (
@@ -327,12 +335,14 @@ macro_rules! property {
         $name:ident,
         returns($ret:ty),
         with($impl:ty),
-        from(subdir($subdir:literal))
+        from(subdir($subdir:literal)),
+        $($rest:tt)*
     ) => {
         property!(_stage_final, $name,
             returns($ret),
             with($impl),
-            from(concat!($subdir, "/", stringify!($name))));
+            from(concat!($subdir, "/", stringify!($name))),
+            $($rest)*);
     };
 
     (
@@ -340,12 +350,14 @@ macro_rules! property {
         $name:ident,
         returns($ret:ty),
         with($impl:ty),
-        from()
+        from(),
+        $($rest:tt)*
     ) => {
         property!(_stage_final, $name,
             returns($ret),
             with($impl),
-            from(stringify!($name)));
+            from(stringify!($name)),
+            $($rest)*);
     };
 
     (
@@ -353,8 +365,10 @@ macro_rules! property {
         $name:ident,
         returns($ret:ty),
         with($impl:ty),
-        from($from:expr)
+        from($from:expr),
+        doc($($doc:tt)?)
     ) => {
+        $(#[doc = $doc])?
         pub fn $name(&self) -> $ret {
             PropertyImpl::<'_, $impl>::new(self.dfd.as_fd(), $from)
         }
@@ -365,13 +379,15 @@ macro_rules! property {
         $access:ident($read:ty $(, $write:ty)?)
         $(, with($impl:ty))?
         $(, from($($from:tt)*))?
+        $(, doc($doc:tt))?
         $(,)?
     ) => {
         property!(_stage_fill_return,
             $name,
             $access($read $(, $write)?),
             with($($impl)?),
-            from($($($from)*)?));
+            from($($($from)*)?),
+            doc($($doc)?));
     };
 }
 
@@ -389,9 +405,22 @@ impl AsFd for MaybeOwnedFd<'_> {
     }
 }
 
+/// A reference to the location of a [`Device`] on the sysfs.
+///
+/// Rather than being an actual filesystem path, this simply contains
+/// information like "what is the index of the device", which, when combined
+/// with the type itself, gives it the ability to parse or construct actual
+/// paths on-the-fly as needed.
+///
+/// Note that these can be constructed at will and thus may not actually
+/// correspond to an existing device! It's simply a reference to a filesystem
+/// location that can *potentially contain* a device.
 pub trait DevicePath:
     Sealed + fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash + Sized
 {
+    /// The parent of this path, i.e. the [`DevicePath`] representing the
+    /// filesystem location that *contains* this device. If this device is not
+    /// nested within another, then this will be [`NoParent`].
     type Parent: DevicePathParent;
 
     fn parse_basename(s: &str, parent: Self::Parent) -> Option<Self>;
@@ -401,13 +430,16 @@ pub trait DevicePath:
 }
 
 macro_rules! device_path_child_collection_getter {
-    ($name:ident, $ret:ty) => {
+    ($name:ident, $ret:ty $(, doc($doc:tt))? $(,)?) => {
+        $(#[doc = $doc])?
         pub fn $name(&self) -> DevicePathCollection<$ret> {
             DevicePathCollection { parent: *self }
         }
     };
 }
 
+/// A parent of a [`DevicePath`]. This can be either a [`DevicePath`] itself or
+/// [`NoParent`].
 pub trait DevicePathParent:
     Sealed + fmt::Debug + Copy + Clone + PartialEq + Eq + std::hash::Hash
 {
@@ -430,6 +462,8 @@ impl<P: DevicePath> DevicePathParent for P {
     }
 }
 
+/// A stub type used as a [`DevicePathParent`] for when a [`Device`] doesn't
+/// actually have a parent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NoParent;
 
@@ -443,19 +477,31 @@ impl DevicePathParent for NoParent {
     fn build_syspath(&self, _p: &mut Utf8PathBuf) {}
 }
 
+/// A child [`DevicePath`] that can be present in its parent multiple times.
 pub trait DevicePathIndexed: DevicePath {
     type Index;
 
+    /// Prefer using [`DevicePathCollection.get`].
     fn child_of(parent: Self::Parent, index: Self::Index) -> Self;
 }
 
+/// A [`DevicePath`] that can be watched for add/change/remove events.
 pub trait DevicePathWatchable: DevicePath {
+    /// Returns a stream of all [`DevicePath`]s of this type that are added.
     fn any_added(ctx: &Watcher) -> WatchResult<DevicePathStream<Self>>;
+    /// Returns a stream of all [`DevicePath`]s of this type that are changed.
     fn any_changed(ctx: &Watcher) -> WatchResult<DevicePathStream<Self>>;
+    /// Returns a stream of all [`DevicePath`]s of this type that are removed.
     fn any_removed(ctx: &Watcher) -> WatchResult<DevicePathStream<Self>>;
 
+    /// Returns a stream containing only this [`DevicePath`] whenever it's
+    /// added.
     fn added(&self, ctx: &Watcher) -> WatchResult<DevicePathStream<Self>>;
+    /// Returns a stream containing only this [`DevicePath`] whenever it's
+    /// changed.
     fn changed(&self, ctx: &Watcher) -> WatchResult<DevicePathStream<Self>>;
+    /// Returns a stream containing only this [`DevicePath`] whenever it's
+    /// removed.
     fn removed(&self, ctx: &Watcher) -> WatchResult<DevicePathStream<Self>>;
 }
 
@@ -485,12 +531,20 @@ macro_rules! impl_device_path_watchable {
     }
 }
 
-// This requires DevicePathIndexed because a singleton child is already at a fixed path
-// location and thus can have added/removed invoked on itself, whereas, for an indexed
-// child, we can't exactly predict what the path will be when a device gets added.
+/// A [`DevicePathIndexed`] that can be watched by invoking one of
+/// [`DevicePathCollection::added`], [`DevicePathCollection::changed`], or
+/// [`DevicePathCollection::removed`] on the parent's corresponding
+/// [`DevicePathCollection`].
+///
+/// This requires [`DevicePathIndexed`] because a singleton child is already at a fixed path
+/// location and thus can have added/removed invoked on itself, whereas, for an indexed
+/// child, we can't exactly predict what the path will be when a device gets added.
 pub trait DevicePathWatchableFromParent: DevicePathIndexed {
+    /// Prefer using [`DevicePathCollection.added`].
     fn added_in(parent: Self::Parent, ctx: &Watcher) -> WatchResult<DevicePathStream<Self>>;
+    /// Prefer using [`DevicePathCollection.changed`].
     fn changed_in(parent: Self::Parent, ctx: &Watcher) -> WatchResult<DevicePathStream<Self>>;
+    /// Prefer using [`DevicePathCollection.removed`].
     fn removed_in(parent: Self::Parent, ctx: &Watcher) -> WatchResult<DevicePathStream<Self>>;
 }
 
@@ -512,41 +566,71 @@ macro_rules! impl_device_path_watchable_from_parent {
     }
 }
 
+/// A wrapper over a parent that can be used to get child paths of a given type.
 pub struct DevicePathCollection<Child: DevicePath> {
     parent: Child::Parent,
 }
 
 impl<Child: DevicePath> DevicePathCollection<Child> {
+    /// Returns the parent containing the child paths.
     pub fn parent(&self) -> &Child::Parent {
         &self.parent
     }
 }
 
 impl<Child: DevicePathIndexed> DevicePathCollection<Child> {
+    /// Returns a path for the child at the given index.
     pub fn get(&self, index: Child::Index) -> Child {
         Child::child_of(self.parent, index)
     }
 }
 
 impl<Child: DevicePathWatchableFromParent> DevicePathCollection<Child> {
+    /// Returns a stream of [`DevicePath`]s that are added and children of
+    /// this collection's parent path.
     pub fn added(&self, ctx: &Watcher) -> WatchResult<DevicePathStream<Child>> {
         Child::added_in(self.parent, ctx)
     }
 
+    /// Returns a stream of [`DevicePath`]s that are changed and children of
+    /// this collection's parent path.
     pub fn changed(&self, ctx: &Watcher) -> WatchResult<DevicePathStream<Child>> {
         Child::changed_in(self.parent, ctx)
     }
+
+    /// Returns a stream of [`DevicePath`]s that are removed and children of
+    /// this collection's parent path.
     pub fn removed(&self, ctx: &Watcher) -> WatchResult<DevicePathStream<Child>> {
         Child::removed_in(self.parent, ctx)
     }
 }
 
+/// An open device from the sysfs.
+///
+/// This contains a live file handle for the device. If the device disappears
+/// while this is open, then any property methods and child accessors will
+/// generally return an [`Error::Io`] containing
+/// [`std::io::ErrorKind::NotFound`].
 pub trait Device: Sealed + Sized {
     type Path: DevicePath;
 
     fn from_fd(dfd: OwnedFd, path: Self::Path) -> Self;
 
+    /// Returns the [`DevicePath`] that points to this device.
     fn path(&self) -> &Self::Path;
+
+    /// Opens the device of this type at the given path.
+    fn open(path: Self::Path) -> Result<Self> {
+        let mut sys = Utf8PathBuf::from("/sys/class/typec");
+        path.build_syspath(&mut sys);
+        let dfd = openat(
+            CWD,
+            sys.as_str(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        Ok(Self::from_fd(dfd, path))
+    }
 }
 
 macro_rules! impl_device {
@@ -565,6 +649,9 @@ macro_rules! impl_device {
     };
 }
 
+/// An unopened [`Device`] within a parent.
+///
+/// Use [`Self::open`] to actually open it and obtain the [`Device`].
 #[derive(Debug)]
 pub struct DeviceEntry<'fd, T: Device> {
     parent_dfd: BorrowedFd<'fd>,
@@ -576,6 +663,7 @@ impl<T: Device> DeviceEntry<'_, T> {
         &self.path
     }
 
+    /// Opens the [`Device`] that this entry points to.
     pub fn open(&self) -> Result<T> {
         let mut s = String::new();
         self.path.build_basename(&mut s);
@@ -589,6 +677,7 @@ impl<T: Device> DeviceEntry<'_, T> {
     }
 }
 
+/// A collection of child [`Device`]s of a single type beneath a parent.
 pub struct DeviceCollection<'fd, Child: Device> {
     dfd: MaybeOwnedFd<'fd>,
     parent: <Child::Path as DevicePath>::Parent,
@@ -596,6 +685,7 @@ pub struct DeviceCollection<'fd, Child: Device> {
 }
 
 impl<Child: Device> DeviceCollection<'_, Child> {
+    /// Returns an iterator of [`DeviceEntry`]s in this collection.
     pub fn iter(&self) -> Result<DeviceIter<'_, Child>> {
         Ok(DeviceIter {
             dfd: self.dfd.as_fd(),
@@ -605,15 +695,18 @@ impl<Child: Device> DeviceCollection<'_, Child> {
         })
     }
 
+    /// Returns an iterator of open [`Device`]s in this collection.
     pub fn iter_opened(&self) -> Result<impl Iterator<Item = Result<Child>> + '_> {
         let iter = self.iter()?;
         Ok(iter.map(|x| x.and_then(|x| x.open())))
     }
 
+    /// Returns an list of [`DeviceEntry`]s in this collection.
     pub fn list(&self) -> Result<Vec<DeviceEntry<'_, Child>>> {
         self.iter().and_then(|x| x.collect())
     }
 
+    /// Returns an list of open [`Device`]s in this collection.
     pub fn list_opened(&self) -> Result<Vec<Child>> {
         self.iter_opened().and_then(|x| x.collect())
     }
@@ -638,6 +731,9 @@ where
     }
 }
 
+/// An iterator over child [`Device`]s.
+///
+/// Obtained via [`DeviceCollection.iter`].
 pub struct DeviceIter<'fd, Child: Device> {
     dfd: BorrowedFd<'fd>,
     dir: Dir,
@@ -679,8 +775,10 @@ impl<'fd, Child: Device> Iterator for DeviceIter<'fd, Child> {
     }
 }
 
+/// A path to a [`Port`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PortPath {
+    /// The port number, as used in `/sys/class/typec/port[port]`.
     pub port: u32,
 }
 
@@ -689,15 +787,21 @@ impl PortPath {
         DevicePathCollection { parent: NoParent }
     }
 
+    /// Returns the path for an attached cable.
     pub fn cable(&self) -> CablePath {
         CablePath { port: self.port }
     }
 
+    /// Returns the path for an attached partner device.
     pub fn partner(&self) -> PartnerPath {
         PartnerPath { port: self.port }
     }
 
-    device_path_child_collection_getter!(alt_modes, AltModePath<PortPath>);
+    device_path_child_collection_getter!(
+        alt_modes,
+        AltModePath<PortPath>,
+        doc("Returns a path collection for this port's alternate modes."),
+    );
 }
 
 impl_sealed!(PortPath);
@@ -730,6 +834,7 @@ impl DevicePathIndexed for PortPath {
 
 impl_device_path_watchable_from_parent!(PortPath, port);
 
+/// A USB type-C port on the system.
 #[derive(Debug)]
 pub struct Port {
     dfd: OwnedFd,
@@ -758,26 +863,31 @@ impl Port {
         data_role,
         rw(RoleSelection<DataRole>, DataRole),
         with(PropertyRoleSelection::<DataRole>),
+        doc("The port's currently selected role in data transmission."),
     );
     property!(
         port_type,
         rw(RoleSelection<PortType>, PortType),
         with(PropertyRoleSelection::<PortType>),
+        doc("The port's currently selected type."),
     );
     property!(
         power_role,
         rw(RoleSelection<PowerRole>, PowerRole),
         with(PropertyRoleSelection::<PowerRole>),
+        doc("The port's currently selected role in power transmission."),
     );
     property!(
         preferred_role,
         ro(Option<PowerRole>),
         with(PropertyPreferredRole),
+        doc("If this port is dual-role, then its preferred role of the two."),
     );
     property!(power_operation_mode, ro(PowerOperationMode));
     property!(usb_power_delivery_revision, ro(Revision));
     property!(usb_typec_revision, ro(Revision));
 
+    /// Returns a collection of this port's alternate modes.
     pub fn alt_modes(&self) -> DeviceCollection<'_, AltMode<PortPath>> {
         DeviceCollection {
             dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
@@ -786,6 +896,7 @@ impl Port {
         }
     }
 
+    /// Returns the entry for this port's connected cable.
     pub fn cable(&self) -> DeviceEntry<'_, Cable> {
         DeviceEntry {
             parent_dfd: self.dfd.as_fd(),
@@ -793,6 +904,7 @@ impl Port {
         }
     }
 
+    /// Returns the entry for this port's connected partner.
     pub fn partner(&self) -> DeviceEntry<'_, Partner> {
         DeviceEntry {
             parent_dfd: self.dfd.as_fd(),
@@ -801,14 +913,24 @@ impl Port {
     }
 }
 
+/// A path to a [`Partner`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PartnerPath {
+    /// The number of the port this partner is connected to.
     pub port: u32,
 }
 
 impl PartnerPath {
-    device_path_child_collection_getter!(alt_modes, AltModePath<PartnerPath>);
-    device_path_child_collection_getter!(pds, PowerDeliveryPath);
+    device_path_child_collection_getter!(
+        alt_modes,
+        AltModePath<PartnerPath>,
+        doc("Returns a path collection for this partner's alternate modes."),
+    );
+    device_path_child_collection_getter!(
+        pds,
+        PowerDeliveryPath,
+        doc("Returns a path collection for this partner's power delivery devices."),
+    );
 }
 
 impl_sealed!(PartnerPath);
@@ -834,6 +956,7 @@ impl DevicePath for PartnerPath {
 
 impl_device_path_watchable!(PartnerPath, partner);
 
+/// A connected partner device.
 #[derive(Debug)]
 pub struct Partner {
     dfd: OwnedFd,
@@ -845,14 +968,17 @@ impl_device!(Partner, path(PartnerPath));
 
 impl Partner {
     // TODO: type
+
     property!(usb_power_delivery_revision, ro(Revision));
 
+    /// Returns a handle to the identity information for this partner.
     pub fn identity(&self) -> IdentityPartner<'_> {
         IdentityPartner {
             dfd: self.dfd.as_fd(),
         }
     }
 
+    /// Returns a collection of this partner's alternate modes.
     pub fn alt_modes(&self) -> DeviceCollection<'_, AltMode<PartnerPath>> {
         DeviceCollection {
             dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
@@ -861,6 +987,7 @@ impl Partner {
         }
     }
 
+    /// Returns a collection of this partner's power delivery devices.
     pub fn pds(&self) -> DeviceCollection<'_, PowerDelivery> {
         DeviceCollection {
             dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
@@ -870,13 +997,19 @@ impl Partner {
     }
 }
 
+/// A path to a [`Cable`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CablePath {
+    /// The number of the port this cable is connected to.
     pub port: u32,
 }
 
 impl CablePath {
-    device_path_child_collection_getter!(plugs, PlugPath);
+    device_path_child_collection_getter!(
+        plugs,
+        PlugPath,
+        doc("Returns a path collection for this cable's plugs."),
+    );
 }
 
 impl_sealed!(CablePath);
@@ -902,6 +1035,7 @@ impl DevicePath for CablePath {
 
 impl_device_path_watchable!(CablePath, cable);
 
+/// A connected cable.
 #[derive(Debug)]
 pub struct Cable {
     dfd: OwnedFd,
@@ -912,12 +1046,14 @@ impl_sealed!(Cable);
 impl_device!(Cable, path(CablePath));
 
 impl Cable {
+    /// Returns a handle to the identity information for this cable.
     pub fn identity(&self) -> IdentityCable<'_> {
         IdentityCable {
             dfd: self.dfd.as_fd(),
         }
     }
 
+    /// Returns a collection of this cable's plugs.
     pub fn plugs(&self) -> DeviceCollection<'_, Plug> {
         DeviceCollection {
             dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
@@ -931,14 +1067,21 @@ impl Cable {
     property!(usb_power_delivery_revision, ro(Revision));
 }
 
+/// A path to a [`Plug`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlugPath {
+    /// The number of the port this plug's cable is connected to.
     pub port: u32,
+    /// The number of this plug in the parent cable's collection.
     pub plug: u32,
 }
 
 impl PlugPath {
-    device_path_child_collection_getter!(alt_modes, AltModePath<PlugPath>);
+    device_path_child_collection_getter!(
+        alt_modes,
+        AltModePath<PlugPath>,
+        doc("Returns a path collection for this plug's alternate modes."),
+    );
 }
 
 impl_sealed!(PlugPath);
@@ -983,6 +1126,7 @@ impl DevicePathIndexed for PlugPath {
 
 impl_device_path_watchable_from_parent!(PlugPath, plug);
 
+/// A [`Cable`]'s plug.
 #[derive(Debug)]
 pub struct Plug {
     dfd: OwnedFd,
@@ -993,6 +1137,7 @@ impl_sealed!(Plug);
 impl_device!(Plug, path(PlugPath));
 
 impl Plug {
+    /// Returns a collection of this plug's alternate modes.
     pub fn alt_modes(&self) -> DeviceCollection<'_, AltMode<PlugPath>> {
         DeviceCollection {
             dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
@@ -1002,9 +1147,12 @@ impl Plug {
     }
 }
 
+/// A path to an [`AltMode`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AltModePath<Parent: DevicePath> {
+    /// The path of this alternate mode's parent device.
     pub parent: Parent,
+    /// The index of this alternate mode in the parent's collection.
     pub index: u32,
 }
 
@@ -1043,6 +1191,7 @@ impl<Parent: DevicePath> DevicePathIndexed for AltModePath<Parent> {
 impl_device_path_watchable_from_parent!(AltModePath<PartnerPath>, partner_alt_mode);
 impl_device_path_watchable_from_parent!(AltModePath<PlugPath>, plug_alt_mode);
 
+/// An alternate mode of some parent device.
 #[derive(Debug)]
 pub struct AltMode<Parent: DevicePath> {
     dfd: OwnedFd,
@@ -1053,25 +1202,65 @@ impl_sealed!(AltMode<Parent>, forall(<Parent: DevicePath>));
 impl_device!(AltMode<Parent>, forall(<Parent: DevicePath>), path(AltModePath<Parent>));
 
 impl<Parent: DevicePath> AltMode<Parent> {
-    property!(active, rw(bool), with(PropertyBoolYesNo));
+    property!(
+        active,
+        rw(bool),
+        with(PropertyBoolYesNo),
+        doc("Is this alternate mode currently active?"),
+    );
     property!(mode, ro(u32));
-    property!(svid, ro(u16), with(PropertyHexU16));
+    property!(
+        svid,
+        ro(u16),
+        with(PropertyHexU16),
+        doc("A Standard or Vendor ID used to identity this mode"),
+    );
     property!(vdo, ro(u32), with(PropertyHexPrefixedU32));
 }
 
 impl AltMode<PortPath> {
-    property!(supported_roles, ro(SupportedRoles));
+    property!(
+        supported_roles,
+        ro(SupportedRoles),
+        doc("The roles supported by this alternate mode"),
+    );
 }
 
+/// A handle to a [`Partner`]'s identity information.
 #[derive(Debug)]
 pub struct IdentityPartner<'fd> {
     dfd: BorrowedFd<'fd>,
 }
 
 impl IdentityPartner<'_> {
-    property!(id_header, ro(VdoIdHeaderPartner), from(subdir("identity")));
-    property!(cert_stat, ro(VdoCertStat), from(subdir("identity")));
-    property!(product, ro(VdoProduct), from(subdir("identity")));
+    property!(
+        id_header,
+        ro(VdoIdHeaderPartner),
+        from(subdir("identity")),
+        doc("The identity header.
+
+If this property is not available yet, then calling [`PropertyReadable::get`]
+will return [`Error::IdentityUnavailable`]."),
+    );
+    property!(
+        cert_stat,
+        ro(VdoCertStat),
+        from(subdir("identity")),
+        doc("The XID from a USB-IF certified device.
+
+If this property is not available, either because it has not been determined yet
+or the device is not USB-IF certified, then calling [`PropertyReadable::get`]
+will return [`Error::IdentityUnavailable`]."),
+    );
+    property!(
+        product,
+        ro(VdoProduct),
+        from(subdir("identity")),
+        doc("The product IDs.
+
+If this property is not available yet, then calling [`PropertyReadable::get`]
+will return [`Error::IdentityUnavailable`]."),
+    );
 
     // TODO: should these be different types?
     property!(
@@ -1094,16 +1283,41 @@ impl IdentityPartner<'_> {
     );
 }
 
+/// A handle to a [`Cable`]'s identity information.
 #[derive(Debug)]
 pub struct IdentityCable<'fd> {
     dfd: BorrowedFd<'fd>,
 }
 
 impl IdentityCable<'_> {
-    property!(id_header, ro(VdoIdHeaderCable), from(subdir("identity")));
-    property!(cert_stat, ro(VdoCertStat), from(subdir("identity")));
-    property!(product, ro(VdoProduct), from(subdir("identity")));
+    property!(
+        id_header,
+        ro(VdoIdHeaderCable),
+        from(subdir("identity")),
+        doc("The identity header.
 
+If this property is not available yet, then calling [`PropertyReadable::get`]
+will return [`Error::IdentityUnavailable`]."),
+    );
+    property!(
+        cert_stat,
+        ro(VdoCertStat),
+        from(subdir("identity")),
+        doc("The XID from a USB-IF certified device.
+
+If this property is not available, either because it has not been determined yet
+or the device is not USB-IF certified, then calling [`PropertyReadable::get`]
+will return [`Error::IdentityUnavailable`]."),
+    );
+    property!(
+        product,
+        ro(VdoProduct),
+        from(subdir("identity")),
+        doc("The product IDs.
+
+If this property is not available yet, then calling [`PropertyReadable::get`]
+will return [`Error::IdentityUnavailable`]."),
+    );
     // TODO: should these be different types?
     property!(
         product_type_vdo1,
@@ -1125,22 +1339,17 @@ impl IdentityCable<'_> {
     );
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, strum::Display)]
-#[strum(serialize_all = "snake_case")]
-pub enum SupplyKind {
-    FixedSupply,
-    Battery,
-    VariableSupply,
-    ProgrammableSupply,
-}
-
+/// A path to a [`PowerDelivery`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PowerDeliveryPath {
+    /// The number of the port this device is connected to.
     pub port: u32,
+    /// The index of this device in the partner's collection.
     pub pd: u32,
 }
 
 impl PowerDeliveryPath {
+    /// Returns a path for the capabilities as a source of power.
     pub fn source_capabilities(&self) -> CapabilitiesPath {
         CapabilitiesPath {
             port: self.port,
@@ -1149,6 +1358,7 @@ impl PowerDeliveryPath {
         }
     }
 
+    /// Returns a path for the capabilities as a sink of power.
     pub fn sink_capabilities(&self) -> CapabilitiesPath {
         CapabilitiesPath {
             port: self.port,
@@ -1195,6 +1405,7 @@ impl DevicePathIndexed for PowerDeliveryPath {
 
 impl_device_path_watchable_from_parent!(PowerDeliveryPath, pd);
 
+/// A device containing source and sink capability information.
 #[derive(Debug)]
 pub struct PowerDelivery {
     dfd: OwnedFd,
@@ -1205,6 +1416,7 @@ impl_sealed!(PowerDelivery);
 impl_device!(PowerDelivery, path(PowerDeliveryPath));
 
 impl PowerDelivery {
+    /// Returns the entry for the capabilities as a source of power.
     pub fn source_capabilities(&self) -> DeviceEntry<'_, SourceCapabilities> {
         DeviceEntry {
             parent_dfd: self.dfd.as_fd(),
@@ -1212,6 +1424,7 @@ impl PowerDelivery {
         }
     }
 
+    /// Returns the entry for the capabilities as a sink of power.
     pub fn sink_capabilities(&self) -> DeviceEntry<'_, SinkCapabilities> {
         DeviceEntry {
             parent_dfd: self.dfd.as_fd(),
@@ -1220,11 +1433,14 @@ impl PowerDelivery {
     }
 }
 
-// TODO: split this into source/sink so we can add pdos()
+/// A path to a [`SourceCapabilities`] or [`SinkCapabilities`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CapabilitiesPath {
+    /// The number of the port this device is connected to.
     pub port: u32,
+    /// The index of this device's parent in the partner's collection.
     pub pd: u32,
+    /// Is this a source or a sink?
     pub role: PowerRole,
 }
 
@@ -1255,6 +1471,7 @@ impl DevicePath for CapabilitiesPath {
     }
 }
 
+/// A device containing the capabilities of a source of power.
 #[derive(Debug)]
 pub struct SourceCapabilities {
     dfd: OwnedFd,
@@ -1265,6 +1482,7 @@ impl_sealed!(SourceCapabilities);
 impl_device!(SourceCapabilities, path(CapabilitiesPath));
 
 impl SourceCapabilities {
+    /// Returns a collection of source PDOs.
     pub fn pdos(&self) -> DeviceCollection<'_, SourcePdo> {
         DeviceCollection {
             dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
@@ -1275,6 +1493,7 @@ impl SourceCapabilities {
 }
 
 // XXX: copy-pasted struct, but making this generic like AltMode is hard
+/// A device containing the capabilities of a sink of power.
 #[derive(Debug)]
 pub struct SinkCapabilities {
     dfd: OwnedFd,
@@ -1285,6 +1504,7 @@ impl_sealed!(SinkCapabilities);
 impl_device!(SinkCapabilities, path(CapabilitiesPath));
 
 impl SinkCapabilities {
+    /// Returns a collection of sink PDOs.
     pub fn pdos(&self) -> DeviceCollection<'_, SinkPdo> {
         DeviceCollection {
             dfd: MaybeOwnedFd::Borrowed(self.dfd.as_fd()),
@@ -1294,13 +1514,33 @@ impl SinkCapabilities {
     }
 }
 
+/// The type of a power supply, as exposed in a PDO.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, strum::Display)]
+#[strum(serialize_all = "snake_case")]
+pub enum SupplyKind {
+    /// A fixed-voltage supply.
+    FixedSupply,
+    /// A connected battery.
+    Battery,
+    /// A supply with a variable voltage within a given range.
+    VariableSupply,
+    /// A supply whose voltage can be changed dynamically.
+    ProgrammableSupply,
+}
+
+/// A path to a [`SourcePdo`] or [`SinkPdo`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PdoPath {
+    /// The number of the port this device is connected to.
     pub port: u32,
+    /// The index of this pdo's [`PowerDeliveryPath`] the partner's collection.
     pub pd: u32,
 
+    /// Is this a source or a sink?
     pub role: PowerRole,
+    /// The index of this device in the parent's collection.
     pub index: u32,
+    /// The type of power supply.
     pub supply: SupplyKind,
 }
 
@@ -1335,6 +1575,7 @@ impl DevicePath for PdoPath {
     }
 }
 
+/// A Power Data Object describing a single source power supply.
 #[derive(Debug)]
 pub enum SourcePdo {
     FixedSupply(SourcePdoFixedSupply),
@@ -1371,6 +1612,7 @@ impl Device for SourcePdo {
     }
 }
 
+/// A Power Data Object describing a single sink power supply.
 #[derive(Debug)]
 pub enum SinkPdo {
     FixedSupply(SinkPdoFixedSupply),
@@ -1407,6 +1649,7 @@ impl Device for SinkPdo {
     }
 }
 
+/// A fixed-voltage source power supply.
 #[derive(Debug)]
 pub struct SourcePdoFixedSupply {
     dfd: OwnedFd,
@@ -1439,6 +1682,7 @@ impl SourcePdoFixedSupply {
     property!(maximum_current, ro(Milliamps));
 }
 
+/// A fixed-voltage power sink.
 #[derive(Debug)]
 pub struct SinkPdoFixedSupply {
     dfd: OwnedFd,
@@ -1471,6 +1715,7 @@ impl SinkPdoFixedSupply {
     property!(operational_current, ro(Milliamps));
 }
 
+/// A battery source power supply.
 #[derive(Debug)]
 pub struct SourcePdoBattery {
     dfd: OwnedFd,
@@ -1486,6 +1731,7 @@ impl SourcePdoBattery {
     property!(maximum_power, ro(Milliwatts));
 }
 
+/// A battery power sink.
 #[derive(Debug)]
 pub struct SinkPdoBattery {
     dfd: OwnedFd,
@@ -1501,6 +1747,7 @@ impl SinkPdoBattery {
     property!(operational_power, ro(Milliwatts));
 }
 
+/// A source power supply with a variable voltage within a given range.
 #[derive(Debug)]
 pub struct SourcePdoVariableSupply {
     dfd: OwnedFd,
@@ -1516,6 +1763,7 @@ impl SourcePdoVariableSupply {
     property!(maximum_current, ro(Milliamps));
 }
 
+/// A power sink with a variable voltage within a given range.
 #[derive(Debug)]
 pub struct SinkPdoVariableSupply {
     dfd: OwnedFd,
@@ -1531,6 +1779,7 @@ impl SinkPdoVariableSupply {
     property!(operational_current, ro(Milliamps));
 }
 
+/// A source power supply whose voltage can be changed dynamically.
 #[derive(Debug)]
 pub struct SourcePdoProgrammableSupply {
     dfd: OwnedFd,
@@ -1547,6 +1796,7 @@ impl SourcePdoProgrammableSupply {
     property!(maximum_current, ro(Milliamps));
 }
 
+/// A power sink whose voltage can be changed dynamically.
 #[derive(Debug)]
 pub struct SinkPdoProgrammableSupply {
     dfd: OwnedFd,

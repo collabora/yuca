@@ -1,3 +1,5 @@
+#![doc = include_str!("../../docs/watcher.md")]
+
 use std::{
     collections::HashMap,
     future::Future,
@@ -80,12 +82,15 @@ impl<'a> Uevent<'a> {
     }
 }
 
+/// An error returned when a [`DevicePathStream`] has too many unread events,
+/// forcing some to be dropped.
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 #[error("stream overflowed, missed {missed_events} events")]
 pub struct Overflowed {
     pub missed_events: u64,
 }
 
+/// An async stream of [`DevicePath`]s.
 #[derive(Debug)]
 pub struct DevicePathStream<P: DevicePath>(async_broadcast::Receiver<P>);
 
@@ -234,12 +239,24 @@ struct SharedDispatchContext {
     enable_umockdev_events_for_testing: AtomicBool,
 }
 
+/// Source to read device events from.
+///
+/// Currently, only netlink is supported.
 pub enum EventSource {
     Netlink,
     // TODO
     // Udev,
 }
 
+/// A dispatcher for device events.
+///
+/// When writing a custom main loop integration, you should poll this
+/// structure's fd (via [`AsFd::as_fd`] or [`AsRawFd::as_raw_fd`]) until either
+/// it's readable or the future returned by [`EventDispatcher::wait_exit`]
+/// returns. If it's readable, then call `EventDispatcher::dispatch_pending`,
+/// looping again if [`ControlFlow::Continue`] is returned.
+///
+/// Obtainable via [`Watcher::new_with_manual_dispatcher`].
 pub struct EventDispatcher(Arc<SharedDispatchContext>);
 
 impl EventDispatcher {
@@ -354,7 +371,11 @@ impl EventDispatcher {
         }
     }
 
-    pub fn wait_done(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    /// Returns a future that will resolve when all the [`Watcher`]s tied to
+    /// this dispatcher are gone.
+    ///
+    /// Once this future is ready, the caller should exit.
+    pub fn wait_exit(&self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let listen = self.0.done_event.listen();
 
         if self.0.done.load(Ordering::Acquire) {
@@ -364,6 +385,10 @@ impl EventDispatcher {
         }
     }
 
+    /// Dispatches all pending events.
+    ///
+    /// Returns [`ControlFlow::Continue`] if the caller should keep polling
+    /// the fd or [`ControlFlow::Break`] if the caller should exit.
     pub fn dispatch_pending(&self) -> Result<ControlFlow<(), ()>> {
         loop {
             if self.0.done.load(Ordering::Acquire) {
@@ -429,12 +454,24 @@ impl Drop for WatcherInner {
     }
 }
 
+/// An error returned when the [`EventDispatcher`] backing a [`Watcher`] has
+/// died, resulting in the [`Watcher`] being unable to process any more events.
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 #[error("watcher is no longer handling events")]
 pub struct DispatcherDead;
 
 pub type WatchResult<T> = std::result::Result<T, DispatcherDead>;
 
+/// A shared context used to listen for device events.
+///
+/// For Tokio users, use [`Watcher::spawn_tokio`] to spawn a background task
+/// that listens for events and dispatches them. Otherwise, use
+/// [`Watcher::new_with_manual_dispatcher`] to obtain an [`EventDispatcher`]
+/// that can be used in the background via your desired runtime.
+///
+/// Once a [`Watcher`] is obtained, it can be passed to the relevant methods on
+/// [`DevicePathWatchable`] and [`DevicePathCollection`] to obtain a
+/// [`DevicePathStream`].
 #[derive(Clone)]
 pub struct Watcher(Arc<WatcherInner>);
 
@@ -447,6 +484,8 @@ impl Watcher {
         ))
     }
 
+    /// Returns a [`Watcher`] backed by a Tokio background task, as well as the
+    /// [`tokio::task::JoinHandle`] for the task.
     #[cfg(feature = "tokio")]
     pub fn spawn_tokio(source: EventSource) -> Result<(Self, tokio::task::JoinHandle<Result<()>>)> {
         let (watcher, dispatcher) = Self::new_with_manual_dispatcher(source)?;
@@ -454,7 +493,7 @@ impl Watcher {
         let fd = tokio::io::unix::AsyncFd::new(dispatcher)?;
 
         let handle = tokio::task::spawn(async move {
-            let mut done = fd.get_ref().wait_done();
+            let mut done = fd.get_ref().wait_exit();
 
             loop {
                 let mut ready = tokio::select! {
@@ -479,6 +518,7 @@ impl Watcher {
         Ok(cb(&ctx.channels))
     }
 
+    #[doc(hidden)]
     pub fn enable_umockdev_events_for_testing(&self) -> WatchResult<()> {
         let ctx = self.0 .0.upgrade().ok_or(DispatcherDead)?;
         ctx.enable_umockdev_events_for_testing

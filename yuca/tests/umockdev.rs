@@ -1272,5 +1272,5 @@ mod feat_tokio {
         assert_that!(received, gt(1));
         assert_that!(missed, gt(1));
         assert_that!((received, missed), result_of!(|(a, b)| a + b, eq(TOTAL)));
-    }
+   }
 }
