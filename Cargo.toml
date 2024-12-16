@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "yuca",
+    "yuca-cli",
 ]
 resolver = "2"
 

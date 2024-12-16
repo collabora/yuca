@@ -1,0 +1,16 @@
+[package]
+name = "yuca-cli"
+edition = "2021"
+
+[[bin]]
+name = "yuca"
+path = "src/main.rs"
+
+[dependencies]
+bpaf = { version = "0.9.15", features = ["derive", "bright-color"] }
+camino = "1.1.9"
+futures-lite = "2.5.0"
+owo-colors = { version = "4.1.0", features = ["supports-colors"] }
+tokio = { workspace = true, features = ["sync"] }
+usb-ids = "1.2024.5"
+yuca = { path = "../yuca" }
