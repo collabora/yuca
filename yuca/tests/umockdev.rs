@@ -1087,6 +1087,17 @@ mod feat_tokio {
             err(anything()),
         );
 
+        std::mem::drop((
+            any_added,
+            any_changed,
+            any_removed,
+            target_added,
+            target_changed,
+            target_removed,
+            other_added,
+            other_changed,
+            other_removed,
+        ));
         consume_watcher(w, jh).await;
     }
 
@@ -1132,6 +1143,7 @@ mod feat_tokio {
         testbed.uevent(child_sys.as_str(), "remove");
         assert_that!(timeout(TIMEOUT, removed.try_next()).await, err(anything()));
 
+        std::mem::drop((added, changed, removed));
         consume_watcher(w, jh).await;
     }
 
@@ -1267,10 +1279,11 @@ mod feat_tokio {
             }
         }
 
+        std::mem::drop(added);
         consume_watcher(w, jh).await;
 
         assert_that!(received, gt(1));
         assert_that!(missed, gt(1));
         assert_that!((received, missed), result_of!(|(a, b)| a + b, eq(TOTAL)));
-   }
+    }
 }

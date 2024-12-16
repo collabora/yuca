@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashMap,
+    fmt,
     future::Future,
     hash::Hash,
     io::IoSliceMut,
@@ -91,17 +92,40 @@ pub struct Overflowed {
 }
 
 /// An async stream of [`DevicePath`]s.
-#[derive(Debug)]
-pub struct DevicePathStream<P: DevicePath>(async_broadcast::Receiver<P>);
+pub struct DevicePathStream<P: DevicePathParent, V: DevicePath> {
+    watched_path: P,
+    recv: async_broadcast::Receiver<V>,
+    _inner: Arc<WatcherInner>,
+}
 
-impl<P: DevicePath> Stream for DevicePathStream<P> {
-    type Item = std::result::Result<P, Overflowed>;
+impl<P: DevicePathParent, V: DevicePath> DevicePathStream<P, V> {
+    /// Returns the path being watched.
+    ///
+    /// This does not necessarily correspond with the path in the sent events,
+    /// e.g. when watching a parent for new children, this will return the
+    /// parent path, while the stream will return the child paths.
+    pub fn watched_path(&self) -> &P {
+        &self.watched_path
+    }
+}
+
+impl<P: DevicePathParent, V: DevicePath> fmt::Debug for DevicePathStream<P, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DevicePathStream")
+            .field("watched_path", &self.watched_path)
+            .field("recv", &self.recv)
+            .finish()
+    }
+}
+
+impl<P: DevicePathParent, V: DevicePath> Stream for DevicePathStream<P, V> {
+    type Item = std::result::Result<V, Overflowed>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        Pin::new(&mut self.0)
+        Pin::new(&mut self.recv)
             .poll_recv(cx)
             .map_err(|err| match err {
                 async_broadcast::RecvError::Overflowed(missed_events) => {
@@ -124,8 +148,8 @@ struct Channel<T> {
 
 pub(crate) struct ChannelMap<P: Eq + Hash, V: DevicePath>(Mutex<HashMap<P, Channel<V>>>);
 
-impl<P: Eq + Hash, V: DevicePath> ChannelMap<P, V> {
-    pub(crate) fn insert(&self, path: P) -> DevicePathStream<V> {
+impl<P: DevicePathParent, V: DevicePath> ChannelMap<P, V> {
+    pub(crate) fn insert(&self, path: P, inner: &Arc<WatcherInner>) -> DevicePathStream<P, V> {
         let mut map = self.0.lock().unwrap();
         let channel = map.entry(path).or_insert_with(|| {
             // TODO: customize the cap?
@@ -136,7 +160,11 @@ impl<P: Eq + Hash, V: DevicePath> ChannelMap<P, V> {
                 recv: recv.deactivate(),
             }
         });
-        DevicePathStream(channel.recv.activate_cloned())
+        DevicePathStream {
+            watched_path: path,
+            recv: channel.recv.activate_cloned(),
+            _inner: inner.clone(),
+        }
     }
 
     fn dispatch(&self, path: P, value: V) {
@@ -443,7 +471,7 @@ impl AsRawFd for EventDispatcher {
 // TODO: when we add udev support, is shutting down the socket safe? or will
 // this need to use a separate channel / future to tell the EventDispatcher's
 // task when to stop?
-struct WatcherInner(Weak<SharedDispatchContext>);
+pub(crate) struct WatcherInner(Weak<SharedDispatchContext>);
 
 impl Drop for WatcherInner {
     fn drop(&mut self) {
@@ -513,9 +541,12 @@ impl Watcher {
         Ok((watcher, handle))
     }
 
-    pub(crate) fn with_channels<R>(&self, cb: impl FnOnce(&'_ AllChannels) -> R) -> WatchResult<R> {
+    pub(crate) fn with_channels<R>(
+        &self,
+        cb: impl FnOnce(&'_ AllChannels, &'_ Arc<WatcherInner>) -> R,
+    ) -> WatchResult<R> {
         let ctx = self.0 .0.upgrade().ok_or(DispatcherDead)?;
-        Ok(cb(&ctx.channels))
+        Ok(cb(&ctx.channels, &self.0))
     }
 
     #[doc(hidden)]
@@ -580,14 +611,18 @@ mod tests {
 
         const TIMEOUT: Duration = Duration::from_millis(25);
 
-        let (w, jh) = Watcher::spawn_tokio(EventSource::Netlink).unwrap();
+        let (w, mut jh) = Watcher::spawn_tokio(EventSource::Netlink).unwrap();
         let w1 = w.clone();
+        let added = PortPath { port: 0 }.added(&w);
 
         sleep(TIMEOUT).await;
 
         std::mem::drop(w);
         std::mem::drop(w1);
 
-        assert_that!(timeout(TIMEOUT, jh).await, ok(ok(ok(()))));
+        assert_that!(timeout(TIMEOUT, &mut jh).await, err(anything()));
+
+        std::mem::drop(added);
+        assert_that!(timeout(TIMEOUT, &mut jh).await, ok(ok(ok(()))));
     }
 }
