@@ -467,10 +467,7 @@ impl AsRawFd for EventDispatcher {
 // All Watchers tied to a SharedDispatchContext share the *same weak reference*,
 // by wrapping it in an outer Arc. This is to support cancellation in the
 // *opposite* direction: when all the Watchers are dropped, then this wrapper
-// will be able to shutdown the EventDispatcher.
-// TODO: when we add udev support, is shutting down the socket safe? or will
-// this need to use a separate channel / future to tell the EventDispatcher's
-// task when to stop?
+// will be able to tell the EventDispatcher to stop.
 pub(crate) struct WatcherInner(Weak<SharedDispatchContext>);
 
 impl Drop for WatcherInner {
