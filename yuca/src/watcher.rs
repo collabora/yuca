@@ -33,11 +33,11 @@ use crate::{sysfs::*, Error, Result};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumString)]
 #[strum(serialize_all = "lowercase")]
 enum Action {
-    // No Add or Remove, because we don't really care about those events here,
+    // No Bind or Unbind, because we don't really care about those events here,
     // so failing to parse is fine.
-    Bind,
+    Add,
     Change,
-    Unbind,
+    Remove,
 }
 
 #[derive(Debug, Clone)]
@@ -226,7 +226,7 @@ impl<P: DevicePath> DeviceChannels<P> {
         };
 
         match uevent.action {
-            Action::Bind => {
+            Action::Add => {
                 self.on_any_added.dispatch(NoParent, path);
                 self.on_inventory_added.dispatch(path.parent(), path);
                 self.on_added.dispatch(path, path);
@@ -236,7 +236,7 @@ impl<P: DevicePath> DeviceChannels<P> {
                 self.on_inventory_changed.dispatch(path.parent(), path);
                 self.on_changed.dispatch(path, path);
             }
-            Action::Unbind => {
+            Action::Remove => {
                 self.on_removed.dispatch(path, path);
                 self.on_inventory_removed.dispatch(path.parent(), path);
                 self.on_any_removed.dispatch(NoParent, path);
@@ -569,13 +569,13 @@ mod tests {
         assert_that!(
             Uevent::parse(concat!(
                 "add@path\0",
-                "ACTION=bind\0",
+                "ACTION=add\0",
                 "DEVPATH=/devices/abc\0",
                 "DEVTYPE=typec_port\0",
                 "SUBSYSTEM=typec\0"
             )),
             ok(pat!(&Uevent {
-                action: eq(Action::Bind),
+                action: eq(Action::Add),
                 devpath: eq("/devices/abc"),
                 devtype: some(eq("typec_port")),
                 subsystem: eq("typec")
@@ -586,8 +586,7 @@ mod tests {
             Uevent::parse(concat!(
                 "add@path\0",
                 "ACTION=add\0",
-                "DEVPATH=/devices/abc\0",
-                // missing DEVTYPE
+                // missing DEVPATH, DEVTYPE
                 "SUBSYSTEM=typec\0"
             )),
             err(pat!(Error::Parse))

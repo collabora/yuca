@@ -1016,11 +1016,11 @@ mod feat_tokio {
         testbed.uevent(target_sys.as_str(), "add");
         assert_that!(
             timeout(TIMEOUT, any_added.try_next()).await,
-            err(anything()),
+            ok(ok(some(eq(&target)))),
         );
         assert_that!(
             timeout(TIMEOUT, target_added.try_next()).await,
-            err(anything()),
+            ok(ok(some(eq(&target)))),
         );
         assert_that!(
             timeout(TIMEOUT, other_added.try_next()).await,
@@ -1030,11 +1030,11 @@ mod feat_tokio {
         testbed.uevent(target_sys.as_str(), "bind");
         assert_that!(
             timeout(TIMEOUT, any_added.try_next()).await,
-            ok(ok(some(eq(&target))))
+            err(anything()),
         );
         assert_that!(
             timeout(TIMEOUT, target_added.try_next()).await,
-            ok(ok(some(eq(&target))))
+            err(anything()),
         );
         assert_that!(
             timeout(TIMEOUT, target_removed.try_next()).await,
@@ -1048,11 +1048,11 @@ mod feat_tokio {
         testbed.uevent(target_sys.as_str(), "change");
         assert_that!(
             timeout(TIMEOUT, any_changed.try_next()).await,
-            ok(ok(some(eq(&target))))
+            ok(ok(some(eq(&target)))),
         );
         assert_that!(
             timeout(TIMEOUT, target_changed.try_next()).await,
-            ok(ok(some(eq(&target))))
+            ok(ok(some(eq(&target)))),
         );
         assert_that!(
             timeout(TIMEOUT, other_changed.try_next()).await,
@@ -1062,11 +1062,11 @@ mod feat_tokio {
         testbed.uevent(target_sys.as_str(), "unbind");
         assert_that!(
             timeout(TIMEOUT, any_removed.try_next()).await,
-            ok(ok(some(eq(&target))))
+            err(anything()),
         );
         assert_that!(
             timeout(TIMEOUT, target_removed.try_next()).await,
-            ok(ok(some(eq(&target))))
+            err(anything()),
         );
         assert_that!(
             timeout(TIMEOUT, other_removed.try_next()).await,
@@ -1076,11 +1076,11 @@ mod feat_tokio {
         testbed.uevent(target_sys.as_str(), "remove");
         assert_that!(
             timeout(TIMEOUT, any_removed.try_next()).await,
-            err(anything()),
+            ok(ok(some(eq(&target)))),
         );
         assert_that!(
             timeout(TIMEOUT, target_removed.try_next()).await,
-            err(anything()),
+            ok(ok(some(eq(&target)))),
         );
         assert_that!(
             timeout(TIMEOUT, other_removed.try_next()).await,
@@ -1120,13 +1120,13 @@ mod feat_tokio {
         child.build_syspath(&mut child_sys);
 
         testbed.uevent(child_sys.as_str(), "add");
-        assert_that!(timeout(TIMEOUT, added.try_next()).await, err(anything()),);
-
-        testbed.uevent(child_sys.as_str(), "bind");
         assert_that!(
             timeout(TIMEOUT, added.try_next()).await,
             ok(ok(some(eq(&child))))
         );
+
+        testbed.uevent(child_sys.as_str(), "bind");
+        assert_that!(timeout(TIMEOUT, added.try_next()).await, err(anything()));
 
         testbed.uevent(child_sys.as_str(), "change");
         assert_that!(
@@ -1135,13 +1135,13 @@ mod feat_tokio {
         );
 
         testbed.uevent(child_sys.as_str(), "unbind");
+        assert_that!(timeout(TIMEOUT, removed.try_next()).await, err(anything()));
+
+        testbed.uevent(child_sys.as_str(), "remove");
         assert_that!(
             timeout(TIMEOUT, removed.try_next()).await,
             ok(ok(some(eq(&child))))
         );
-
-        testbed.uevent(child_sys.as_str(), "remove");
-        assert_that!(timeout(TIMEOUT, removed.try_next()).await, err(anything()));
 
         std::mem::drop((added, changed, removed));
         consume_watcher(w, jh).await;
@@ -1267,7 +1267,7 @@ mod feat_tokio {
         let mut added = p.added(&w).unwrap();
 
         for _ in 0..TOTAL {
-            testbed.uevent(sys.as_str(), "bind");
+            testbed.uevent(sys.as_str(), "add");
         }
 
         let mut received = 0;
