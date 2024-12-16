@@ -814,7 +814,10 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
                         &SinkPdoFixedSupply.unchunked_extended_messages_supported(),
                         ok(is_false())
                     ),
-                    property_sysfs!(&SinkPdoFixedSupply.fast_role_swap_current(), ok(eq(0))),
+                    property_sysfs!(
+                        &SinkPdoFixedSupply.fast_role_swap_current(),
+                        ok(eq(FastRoleSwapCurrent::NotSupported))
+                    ),
                     property_sysfs!(&SinkPdoFixedSupply.voltage(), ok(eq(Millivolts(5000)))),
                     property_sysfs!(
                         &SinkPdoFixedSupply.operational_current(),
@@ -894,7 +897,10 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
                         &SinkPdoFixedSupply.unchunked_extended_messages_supported(),
                         ok(is_false())
                     ),
-                    property_sysfs!(&SinkPdoFixedSupply.fast_role_swap_current(), ok(eq(0))),
+                    property_sysfs!(
+                        &SinkPdoFixedSupply.fast_role_swap_current(),
+                        ok(eq(FastRoleSwapCurrent::NotSupported))
+                    ),
                     property_sysfs!(&SinkPdoFixedSupply.voltage(), ok(eq(Millivolts(5000)))),
                     property_sysfs!(
                         &SinkPdoFixedSupply.operational_current(),

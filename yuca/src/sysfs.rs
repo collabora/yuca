@@ -1720,7 +1720,7 @@ impl SinkPdoFixedSupply {
         ro(bool),
         with(PropertyBoolIntegral)
     );
-    property!(fast_role_swap_current, ro(u32));
+    property!(fast_role_swap_current, ro(FastRoleSwapCurrent));
 
     // available on all items
     property!(voltage, ro(Millivolts));

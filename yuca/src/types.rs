@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use strum::{Display, EnumString};
+use strum::{Display, EnumString, FromRepr};
 
 use crate::{Error, Result};
 
@@ -372,6 +372,28 @@ fn parse_unit_suffixed(s: &str, suffix: &str) -> Result<u32> {
     s.strip_suffix(suffix)
         .and_then(|s| u32::from_str(s).ok())
         .ok_or(Error::Parse)
+}
+
+/// The current required by a sink after a fast role swap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
+#[repr(u32)]
+pub enum FastRoleSwapCurrent {
+    /// Fast role swaps are not supported.
+    NotSupported = 0b00,
+    /// Standard USB (non-type-C) power.
+    Default = 0b01,
+    // 1.5A @ 5V.
+    _1_5A = 0b10,
+    // 3.0A @ 5V.
+    _3_0A = 0b11,
+}
+
+impl FromStr for FastRoleSwapCurrent {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        s.parse().ok().and_then(Self::from_repr).ok_or(Error::Parse)
+    }
 }
 
 /// A number with the unit mV.
