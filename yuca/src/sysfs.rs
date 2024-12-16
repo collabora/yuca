@@ -405,6 +405,9 @@ impl AsFd for MaybeOwnedFd<'_> {
     }
 }
 
+/// Path to the sysfs directory containing Type-C devices.
+pub const SYS_CLASS_TYPEC: &str = "/sys/class/typec";
+
 /// A reference to the location of a [`Device`] on the sysfs.
 ///
 /// Rather than being an actual filesystem path, this simply contains
@@ -630,7 +633,7 @@ pub trait Device: Sealed + Sized {
 
     /// Opens the device of this type at the given path.
     fn open(path: Self::Path) -> Result<Self> {
-        let mut sys = Utf8PathBuf::from("/sys/class/typec");
+        let mut sys = Utf8PathBuf::from(SYS_CLASS_TYPEC);
         path.build_syspath(&mut sys);
         let dfd = openat(
             CWD,
@@ -857,7 +860,7 @@ impl Port {
     pub fn collection() -> Result<DeviceCollection<'static, Port>> {
         let dfd = openat(
             CWD,
-            "/sys/class/typec",
+            SYS_CLASS_TYPEC,
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
             Mode::empty(),
         )?;
