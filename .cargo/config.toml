@@ -1,2 +1,2 @@
 [target.'cfg(all())']
-runner = "umockdev-wrapper"
+runner = "umockdev/test-runner.sh"
