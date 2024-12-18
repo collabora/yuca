@@ -512,6 +512,7 @@ impl Watcher {
     /// Returns a [`Watcher`] backed by a Tokio background task, as well as the
     /// [`tokio::task::JoinHandle`] for the task.
     #[cfg(feature = "tokio")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
     pub fn spawn_tokio(source: EventSource) -> Result<(Self, tokio::task::JoinHandle<Result<()>>)> {
         let (watcher, dispatcher) = Self::new_with_manual_dispatcher(source)?;
 
@@ -599,6 +600,7 @@ mod tests {
     }
 
     #[cfg(feature = "tokio")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
     #[tokio::test]
     async fn watcher_death() {
         use std::time::Duration;
