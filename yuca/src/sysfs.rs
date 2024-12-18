@@ -1456,6 +1456,14 @@ pub struct CapabilitiesPath {
     pub role: PowerRole,
 }
 
+impl CapabilitiesPath {
+    device_path_child_collection_getter!(
+        pdos,
+        PdoPath,
+        doc("Returns a path collection for the capabilities' PDOs."),
+    );
+}
+
 impl_sealed!(CapabilitiesPath);
 
 impl DevicePath for CapabilitiesPath {
@@ -1583,6 +1591,20 @@ impl DevicePath for PdoPath {
             port: self.port,
             pd: self.pd,
             role: self.role,
+        }
+    }
+}
+
+impl DevicePathIndexed for PdoPath {
+    type Index = (u32, SupplyKind);
+
+    fn child_of(parent: Self::Parent, index: Self::Index) -> Self {
+        PdoPath {
+            port: parent.port,
+            pd: parent.pd,
+            role: parent.role,
+            index: index.0,
+            supply: index.1,
         }
     }
 }
