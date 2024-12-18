@@ -1,0 +1,122 @@
+name: CI
+on:
+  push:
+    branches-ignore:
+      - 'gh-readonly-queue/**'
+  pull_request:
+  merge_group:
+
+env:
+  APT_PACKAGES: libglib2.0-dev libumockdev-dev
+  RUST_TOOLCHAIN: '1.83'
+
+jobs:
+  check:
+    name: cargo check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: tecolicom/actions-use-apt-tools@v1
+        with:
+          tools: ${{ env.APT_PACKAGES }}
+          method: timestamp
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-targets --all-features
+
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+
+  test:
+    name: cargo test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - uses: tecolicom/actions-use-apt-tools@v1
+        with:
+          tools: ${{ env.APT_PACKAGES }} umockdev
+          method: timestamp
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo nextest run --all-targets --all-features
+      - run: cargo test --all-features --doc
+
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+      - uses: tecolicom/actions-use-apt-tools@v1
+        with:
+          tools: ${{ env.APT_PACKAGES }}
+          method: timestamp
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  clippy-latest:
+    name: cargo clippy latest
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - uses: tecolicom/actions-use-apt-tools@v1
+        with:
+          tools: ${{ env.APT_PACKAGES }}
+          method: timestamp
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: toolchain-latest
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  minimal-dependencies:
+    name: minimal direct dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+      - uses: tecolicom/actions-use-apt-tools@v1
+        with:
+          tools: ${{ env.APT_PACKAGES }}
+          method: timestamp
+      - run: cargo check -Z direct-minimal-versions
+
+  allgreen:
+    name: allgreen
+    if: always()
+    needs:
+      - check
+      - fmt
+      - test
+      - clippy
+      - minimal-dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}
