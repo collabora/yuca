@@ -712,7 +712,7 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
         ]
     );
 
-    let vsafe5v_path = vsafe5v.path().clone();
+    let vsafe5v_path = *vsafe5v.path();
     let vsafe5v = vsafe5v.into_fixed_supply().try_into_vsafe5v().unwrap();
     assert_that!(vsafe5v.path(), eq(&vsafe5v_path));
 
@@ -738,7 +738,7 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
     );
 
     assert_that!(
-        SourcePdoFixedSupply::open(pdos[0].path().clone())
+        SourcePdoFixedSupply::open(*pdos[0].path())
             .unwrap()
             .try_into_vsafe5v(),
         ok(property!(
@@ -809,7 +809,7 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
         ]
     );
 
-    let vsafe5v_path = vsafe5v.path().clone();
+    let vsafe5v_path = *vsafe5v.path();
     let vsafe5v = vsafe5v.into_fixed_supply().try_into_vsafe5v().unwrap();
     assert_that!(vsafe5v.path(), eq(&vsafe5v_path));
 
@@ -835,7 +835,7 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
     );
 
     assert_that!(
-        SourcePdoFixedSupply::open(pdos[0].path().clone())
+        SourcePdoFixedSupply::open(*pdos[0].path())
             .unwrap()
             .try_into_vsafe5v(),
         ok(property!(
@@ -902,7 +902,7 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
         ]
     );
 
-    let vsafe5v_path = vsafe5v.path().clone();
+    let vsafe5v_path = *vsafe5v.path();
     let vsafe5v = vsafe5v.into_fixed_supply().try_into_vsafe5v().unwrap();
     assert_that!(vsafe5v.path(), eq(&vsafe5v_path));
 
@@ -961,7 +961,7 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
     );
 
     assert_that!(
-        SinkPdoFixedSupply::open(pdos[0].path().clone())
+        SinkPdoFixedSupply::open(*pdos[0].path())
             .unwrap()
             .try_into_vsafe5v(),
         ok(property!(
@@ -970,7 +970,7 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
         ))
     );
     assert_that!(
-        SinkPdoFixedSupply::open(pdos[1].path().clone())
+        SinkPdoFixedSupply::open(*pdos[1].path())
             .unwrap()
             .try_into_vsafe5v(),
         err(property!(&SinkPdoFixedSupply.path(), eq(pdos[1].path())))
@@ -1027,7 +1027,7 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
         ]
     );
 
-    let vsafe5v_path = vsafe5v.path().clone();
+    let vsafe5v_path = *vsafe5v.path();
     let vsafe5v = vsafe5v.into_fixed_supply().try_into_vsafe5v().unwrap();
     assert_that!(vsafe5v.path(), eq(&vsafe5v_path));
 
@@ -1105,7 +1105,7 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
     );
 
     assert_that!(
-        SinkPdoFixedSupply::open(pdos[0].path().clone())
+        SinkPdoFixedSupply::open(*pdos[0].path())
             .unwrap()
             .try_into_vsafe5v(),
         ok(property!(
@@ -1114,7 +1114,7 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
         ))
     );
     assert_that!(
-        SinkPdoFixedSupply::open(pdos[1].path().clone())
+        SinkPdoFixedSupply::open(*pdos[1].path())
             .unwrap()
             .try_into_vsafe5v(),
         err(property!(&SinkPdoFixedSupply.path(), eq(pdos[1].path())))
