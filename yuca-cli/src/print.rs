@@ -627,36 +627,49 @@ fn print_source_pdo(p: TreePrinter, pdo: DeviceOpener<'_, SourcePdo>) {
 
     match pdo {
         SourcePdo::FixedSupply(pdo) => {
-            print_line_styled!(p.property("Type"), literal, "fixed");
+            let pdo = match pdo.try_into_vsafe5v() {
+                Ok(pdo) => {
+                    print_line!(
+                        p.property("Type"),
+                        "{} {}",
+                        styled_fmt!(literal, "fixed"),
+                        styled_fmt!(special, "(vSafe5V)")
+                    );
 
-            // First item only!
-            p.property("Dual role power")
-                .try_apply(pdo.dual_role_power().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("USB suspend supported")
-                .try_apply(pdo.usb_suspend_supported().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("Unconstrained power")
-                .try_apply(pdo.unconstrained_power().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("USB communication capable")
-                .try_apply(pdo.usb_communication_capable().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("Dual role data")
-                .try_apply(pdo.dual_role_data().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("Unchunked extended messages supported")
-                .try_apply(
-                    pdo.unchunked_extended_messages_supported().get(),
-                    |p, value| print_line_styled!(p, special, "{value}"),
-                );
+                    p.property("Dual role power")
+                        .try_apply(pdo.dual_role_power().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("USB suspend supported")
+                        .try_apply(pdo.usb_suspend_supported().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("Unconstrained power")
+                        .try_apply(pdo.unconstrained_power().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("USB communication capable")
+                        .try_apply(pdo.usb_communication_capable().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("Dual role data")
+                        .try_apply(pdo.dual_role_data().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("Unchunked extended messages supported")
+                        .try_apply(
+                            pdo.unchunked_extended_messages_supported().get(),
+                            |p, value| print_line_styled!(p, special, "{value}"),
+                        );
 
-            // On all items.
+                    pdo.into_fixed_supply()
+                }
+                Err(pdo) => {
+                    print_line_styled!(p.property("Type"), literal, "fixed");
+                    pdo
+                }
+            };
+
             // TODO: how should peak_current look?
             p.property("Voltage")
                 .try_apply(pdo.voltage().get(), |p, value| {
@@ -732,47 +745,66 @@ fn print_sink_pdo(p: TreePrinter, pdo: DeviceOpener<'_, SinkPdo>) {
 
     match pdo {
         SinkPdo::FixedSupply(pdo) => {
-            print_line_styled!(p.property("Type"), literal, "fixed");
+            let pdo = match pdo.try_into_vsafe5v() {
+                Ok(pdo) => {
+                    print_line!(
+                        p.property("Type"),
+                        "{} {}",
+                        styled_fmt!(literal, "fixed"),
+                        styled_fmt!(special, "(vSafe5V)")
+                    );
 
-            // First item only!
-            p.property("Dual role power")
-                .try_apply(pdo.dual_role_power().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("Higher capability")
-                .try_apply(pdo.higher_capability().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("Unconstrained power")
-                .try_apply(pdo.unconstrained_power().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("USB communication capable")
-                .try_apply(pdo.usb_communication_capable().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("Dual role data")
-                .try_apply(pdo.dual_role_data().get(), |p, value| {
-                    print_line_styled!(p, special, "{value}")
-                });
-            p.property("Unchunked extended messages supported")
-                .try_apply(
-                    pdo.unchunked_extended_messages_supported().get(),
-                    |p, value| print_line_styled!(p, special, "{value}"),
-                );
-            p.property("Fast role swap").try_apply(
-                pdo.fast_role_swap_current().get(),
-                |p, value| match value {
-                    FastRoleSwapCurrent::NotSupported => {
-                        print_line_styled!(p, literal, "not supported")
-                    }
-                    FastRoleSwapCurrent::Default => print_line_styled!(p, literal, "default"),
-                    FastRoleSwapCurrent::_1_5A => print_line_styled!(p, number, "1.5A @ 5V"),
-                    FastRoleSwapCurrent::_3_0A => print_line_styled!(p, number, "3.0A @ 5V"),
-                },
-            );
+                    p.property("Dual role power")
+                        .try_apply(pdo.dual_role_power().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("Higher capability")
+                        .try_apply(pdo.higher_capability().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("Unconstrained power")
+                        .try_apply(pdo.unconstrained_power().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("USB communication capable")
+                        .try_apply(pdo.usb_communication_capable().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("Dual role data")
+                        .try_apply(pdo.dual_role_data().get(), |p, value| {
+                            print_line_styled!(p, special, "{value}")
+                        });
+                    p.property("Unchunked extended messages supported")
+                        .try_apply(
+                            pdo.unchunked_extended_messages_supported().get(),
+                            |p, value| print_line_styled!(p, special, "{value}"),
+                        );
+                    p.property("Fast role swap").try_apply(
+                        pdo.fast_role_swap_current().get(),
+                        |p, value| match value {
+                            FastRoleSwapCurrent::NotSupported => {
+                                print_line_styled!(p, literal, "not supported")
+                            }
+                            FastRoleSwapCurrent::Default => {
+                                print_line_styled!(p, literal, "default")
+                            }
+                            FastRoleSwapCurrent::_1_5A => {
+                                print_line_styled!(p, number, "1.5A @ 5V")
+                            }
+                            FastRoleSwapCurrent::_3_0A => {
+                                print_line_styled!(p, number, "3.0A @ 5V")
+                            }
+                        },
+                    );
 
-            // On all items.
+                    pdo.into_fixed_supply()
+                }
+                Err(pdo) => {
+                    print_line_styled!(p.property("Type"), literal, "fixed");
+                    pdo
+                }
+            };
+
             p.property("Voltage")
                 .try_apply(pdo.voltage().get(), |p, value| {
                     print_line_styled!(p, number, "{} mV", value.0)

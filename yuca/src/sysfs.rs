@@ -1457,6 +1457,11 @@ pub struct CapabilitiesPath {
 }
 
 impl CapabilitiesPath {
+    // Returns the path for the fixed-supply vSafe5V PDO.
+    pub fn vsafe5v(&self) -> PdoPath {
+        self.pdos().get((1, SupplyKind::FixedSupply))
+    }
+
     device_path_child_collection_getter!(
         pdos,
         PdoPath,
@@ -1502,6 +1507,14 @@ impl_sealed!(SourceCapabilities);
 impl_device!(SourceCapabilities, path(CapabilitiesPath));
 
 impl SourceCapabilities {
+    // Returns the fixed-supply vSafe5V PDO.
+    pub fn vsafe5v(&self) -> DeviceEntry<'_, SourcePdoFixedSupplyVSafe5V> {
+        DeviceEntry {
+            parent_dfd: self.dfd.as_fd(),
+            path: self.path().vsafe5v(),
+        }
+    }
+
     /// Returns a collection of source PDOs.
     pub fn pdos(&self) -> DeviceCollection<'_, SourcePdo> {
         DeviceCollection {
@@ -1524,6 +1537,14 @@ impl_sealed!(SinkCapabilities);
 impl_device!(SinkCapabilities, path(CapabilitiesPath));
 
 impl SinkCapabilities {
+    // Returns the fixed-supply vSafe5V PDO.
+    pub fn vsafe5v(&self) -> DeviceEntry<'_, SinkPdoFixedSupplyVSafe5V> {
+        DeviceEntry {
+            parent_dfd: self.dfd.as_fd(),
+            path: self.path().vsafe5v(),
+        }
+    }
+
     /// Returns a collection of sink PDOs.
     pub fn pdos(&self) -> DeviceCollection<'_, SinkPdo> {
         DeviceCollection {
@@ -1683,18 +1704,19 @@ impl Device for SinkPdo {
     }
 }
 
-/// A fixed-voltage source power supply.
+/// The vSafe5V fixed-voltage source power supply.
+///
+/// Always guaranteed to be the very first PDO.
 #[derive(Debug)]
-pub struct SourcePdoFixedSupply {
+pub struct SourcePdoFixedSupplyVSafe5V {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_sealed!(SourcePdoFixedSupply);
-impl_device!(SourcePdoFixedSupply, path(PdoPath));
+impl_sealed!(SourcePdoFixedSupplyVSafe5V);
+impl_device!(SourcePdoFixedSupplyVSafe5V, path(PdoPath));
 
-impl SourcePdoFixedSupply {
-    // first item only!
+impl SourcePdoFixedSupplyVSafe5V {
     property!(dual_role_power, ro(bool), with(PropertyBoolIntegral));
     property!(usb_suspend_supported, ro(bool), with(PropertyBoolIntegral));
     property!(unconstrained_power, ro(bool), with(PropertyBoolIntegral));
@@ -1710,24 +1732,65 @@ impl SourcePdoFixedSupply {
         with(PropertyBoolIntegral)
     );
 
-    // available on all items
+    // Shared with SourcePdoFixedSupply.
     property!(peak_current, ro(u32));
     property!(voltage, ro(Millivolts));
     property!(maximum_current, ro(Milliamps));
+
+    /// Converts this into a generic [`SourcePdoFixedSupply`].
+    pub fn into_fixed_supply(self) -> SourcePdoFixedSupply {
+        SourcePdoFixedSupply {
+            dfd: self.dfd,
+            path: self.path,
+        }
+    }
 }
 
-/// A fixed-voltage power sink.
+/// A fixed-voltage source power supply.
 #[derive(Debug)]
-pub struct SinkPdoFixedSupply {
+pub struct SourcePdoFixedSupply {
     dfd: OwnedFd,
     path: PdoPath,
 }
 
-impl_sealed!(SinkPdoFixedSupply);
-impl_device!(SinkPdoFixedSupply, path(PdoPath));
+impl_sealed!(SourcePdoFixedSupply);
+impl_device!(SourcePdoFixedSupply, path(PdoPath));
 
-impl SinkPdoFixedSupply {
-    // first item only!
+impl SourcePdoFixedSupply {
+    property!(peak_current, ro(u32));
+    property!(voltage, ro(Millivolts));
+    property!(maximum_current, ro(Milliamps));
+
+    /// Converts this fixed supply into an instance of
+    /// [`SinkPdoFixedSupplyVSafe5V`].
+    ///
+    /// If this supply is not the first one, returns an [`Err`] containing
+    /// itself.
+    pub fn try_into_vsafe5v(self) -> std::result::Result<SourcePdoFixedSupplyVSafe5V, Self> {
+        if self.path().index == 1 {
+            Ok(SourcePdoFixedSupplyVSafe5V {
+                dfd: self.dfd,
+                path: self.path,
+            })
+        } else {
+            Err(self)
+        }
+    }
+}
+
+/// The vSafe5V fixed-voltage power sink.
+///
+/// Always guaranteed to be the very first PDO.
+#[derive(Debug)]
+pub struct SinkPdoFixedSupplyVSafe5V {
+    dfd: OwnedFd,
+    path: PdoPath,
+}
+
+impl_sealed!(SinkPdoFixedSupplyVSafe5V);
+impl_device!(SinkPdoFixedSupplyVSafe5V, path(PdoPath));
+
+impl SinkPdoFixedSupplyVSafe5V {
     property!(dual_role_power, ro(bool), with(PropertyBoolIntegral));
     property!(higher_capability, ro(bool), with(PropertyBoolIntegral));
     property!(unconstrained_power, ro(bool), with(PropertyBoolIntegral));
@@ -1744,9 +1807,48 @@ impl SinkPdoFixedSupply {
     );
     property!(fast_role_swap_current, ro(FastRoleSwapCurrent));
 
-    // available on all items
+    // Shared with SinkPdoFixedSupply.
     property!(voltage, ro(Millivolts));
     property!(operational_current, ro(Milliamps));
+
+    /// Converts this into a generic [`SourcePdoFixedSupply`].
+    pub fn into_fixed_supply(self) -> SinkPdoFixedSupply {
+        SinkPdoFixedSupply {
+            dfd: self.dfd,
+            path: self.path,
+        }
+    }
+}
+
+/// A fixed-voltage power sink.
+#[derive(Debug)]
+pub struct SinkPdoFixedSupply {
+    dfd: OwnedFd,
+    path: PdoPath,
+}
+
+impl_sealed!(SinkPdoFixedSupply);
+impl_device!(SinkPdoFixedSupply, path(PdoPath));
+
+impl SinkPdoFixedSupply {
+    property!(voltage, ro(Millivolts));
+    property!(operational_current, ro(Milliamps));
+
+    /// Converts this fixed supply into an instance of
+    /// [`SinkPdoFixedSupplyVSafe5V`].
+    ///
+    /// If this supply is not the first one, returns an [`Err`] containing
+    /// itself.
+    pub fn try_into_vsafe5v(self) -> std::result::Result<SinkPdoFixedSupplyVSafe5V, Self> {
+        if self.path().index == 1 {
+            Ok(SinkPdoFixedSupplyVSafe5V {
+                dfd: self.dfd,
+                path: self.path,
+            })
+        } else {
+            Err(self)
+        }
+    }
 }
 
 /// A battery source power supply.

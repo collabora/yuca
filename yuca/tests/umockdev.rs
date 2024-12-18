@@ -649,7 +649,7 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
 
     let collection = Port::collection().unwrap();
 
-    let mut pdos = collection
+    let caps = collection
         .get(0)
         .unwrap()
         .partner()
@@ -660,17 +660,14 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
         .unwrap()
         .source_capabilities()
         .open()
-        .unwrap()
-        .pdos()
-        .list_opened()
         .unwrap();
-    pdos.sort_by_key(|m| m.path().index);
 
+    let vsafe5v = caps.vsafe5v().open().unwrap();
     assert_that!(
-        pdos,
-        elements_are![all![
+        vsafe5v,
+        all![
             property!(
-                &SourcePdo.path(),
+                &SourcePdoFixedSupplyVSafe5V.path(),
                 eq(&PdoPath {
                     port: 0,
                     pd: 0,
@@ -679,22 +676,54 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
                     supply: SupplyKind::FixedSupply
                 })
             ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.dual_role_power(),
+                ok(is_true())
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.usb_suspend_supported(),
+                ok(is_false())
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.unconstrained_power(),
+                ok(is_true())
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.usb_communication_capable(),
+                ok(is_true())
+            ),
+            property_sysfs!(&SourcePdoFixedSupplyVSafe5V.dual_role_data(), ok(is_true())),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.unchunked_extended_messages_supported(),
+                ok(is_true())
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.voltage(),
+                ok(eq(Millivolts(5000)))
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.peak_current(),
+                err(eq(Error::Io(IoErrorKind::NotFound)))
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.maximum_current(),
+                ok(eq(Milliamps(3000)))
+            ),
+        ]
+    );
+
+    let vsafe5v_path = vsafe5v.path().clone();
+    let vsafe5v = vsafe5v.into_fixed_supply().try_into_vsafe5v().unwrap();
+    assert_that!(vsafe5v.path(), eq(&vsafe5v_path));
+
+    let mut pdos = caps.pdos().list_opened().unwrap();
+    pdos.sort_by_key(|m| m.path().index);
+
+    assert_that!(
+        pdos,
+        elements_are![all![
+            property!(&SourcePdo.path(), eq(vsafe5v.path())),
             matches_pattern!(SourcePdo::FixedSupply(all![
-                property_sysfs!(&SourcePdoFixedSupply.dual_role_power(), ok(is_true())),
-                property_sysfs!(
-                    &SourcePdoFixedSupply.usb_suspend_supported(),
-                    ok(is_false())
-                ),
-                property_sysfs!(&SourcePdoFixedSupply.unconstrained_power(), ok(is_true())),
-                property_sysfs!(
-                    &SourcePdoFixedSupply.usb_communication_capable(),
-                    ok(is_true())
-                ),
-                property_sysfs!(&SourcePdoFixedSupply.dual_role_data(), ok(is_true())),
-                property_sysfs!(
-                    &SourcePdoFixedSupply.unchunked_extended_messages_supported(),
-                    ok(is_true())
-                ),
                 property_sysfs!(&SourcePdoFixedSupply.voltage(), ok(eq(Millivolts(5000)))),
                 property_sysfs!(
                     &SourcePdoFixedSupply.peak_current(),
@@ -708,7 +737,16 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
         ]],
     );
 
-    let mut pdos = collection
+    assert_that!(
+        SourcePdoFixedSupply::open(pdos[0].path().clone())
+            .unwrap()
+            .try_into_vsafe5v(),
+        ok(property!(
+            &SourcePdoFixedSupplyVSafe5V.path(),
+            eq(&vsafe5v_path)
+        ))
+    );
+    let caps = collection
         .get(1)
         .unwrap()
         .partner()
@@ -719,17 +757,14 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
         .unwrap()
         .source_capabilities()
         .open()
-        .unwrap()
-        .pdos()
-        .list_opened()
         .unwrap();
-    pdos.sort_by_key(|m| m.path().index);
 
+    let vsafe5v = caps.vsafe5v().open().unwrap();
     assert_that!(
-        pdos,
-        elements_are![all![
+        vsafe5v,
+        all![
             property!(
-                &SourcePdo.path(),
+                &SourcePdoFixedSupplyVSafe5V.path(),
                 eq(&PdoPath {
                     port: 1,
                     pd: 1,
@@ -738,19 +773,54 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
                     supply: SupplyKind::FixedSupply
                 })
             ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.dual_role_power(),
+                ok(is_true())
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.usb_suspend_supported(),
+                ok(is_true())
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.unconstrained_power(),
+                ok(is_false())
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.usb_communication_capable(),
+                ok(is_true())
+            ),
+            property_sysfs!(&SourcePdoFixedSupplyVSafe5V.dual_role_data(), ok(is_true())),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.unchunked_extended_messages_supported(),
+                ok(is_false())
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.voltage(),
+                ok(eq(Millivolts(5000)))
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.peak_current(),
+                err(eq(Error::Io(IoErrorKind::NotFound)))
+            ),
+            property_sysfs!(
+                &SourcePdoFixedSupplyVSafe5V.maximum_current(),
+                ok(eq(Milliamps(900)))
+            ),
+        ]
+    );
+
+    let vsafe5v_path = vsafe5v.path().clone();
+    let vsafe5v = vsafe5v.into_fixed_supply().try_into_vsafe5v().unwrap();
+    assert_that!(vsafe5v.path(), eq(&vsafe5v_path));
+
+    let mut pdos = caps.pdos().list_opened().unwrap();
+    pdos.sort_by_key(|m| m.path().index);
+
+    assert_that!(
+        pdos,
+        elements_are![all![
+            property!(&SourcePdo.path(), eq(vsafe5v.path())),
             matches_pattern!(SourcePdo::FixedSupply(all![
-                property_sysfs!(&SourcePdoFixedSupply.dual_role_power(), ok(is_true())),
-                property_sysfs!(&SourcePdoFixedSupply.usb_suspend_supported(), ok(is_true())),
-                property_sysfs!(&SourcePdoFixedSupply.unconstrained_power(), ok(is_false())),
-                property_sysfs!(
-                    &SourcePdoFixedSupply.usb_communication_capable(),
-                    ok(is_true())
-                ),
-                property_sysfs!(&SourcePdoFixedSupply.dual_role_data(), ok(is_true())),
-                property_sysfs!(
-                    &SourcePdoFixedSupply.unchunked_extended_messages_supported(),
-                    ok(is_false())
-                ),
                 property_sysfs!(&SourcePdoFixedSupply.voltage(), ok(eq(Millivolts(5000)))),
                 property_sysfs!(
                     &SourcePdoFixedSupply.peak_current(),
@@ -763,6 +833,16 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
             ])),
         ]],
     );
+
+    assert_that!(
+        SourcePdoFixedSupply::open(pdos[0].path().clone())
+            .unwrap()
+            .try_into_vsafe5v(),
+        ok(property!(
+            &SourcePdoFixedSupplyVSafe5V.path(),
+            eq(&vsafe5v_path)
+        ))
+    );
 }
 
 #[rstest]
@@ -771,7 +851,7 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
 
     let collection = Port::collection().unwrap();
 
-    let mut pdos = collection
+    let caps = collection
         .get(0)
         .unwrap()
         .partner()
@@ -782,10 +862,51 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
         .unwrap()
         .sink_capabilities()
         .open()
-        .unwrap()
-        .pdos()
-        .list_opened()
         .unwrap();
+
+    let vsafe5v = caps.vsafe5v().open().unwrap();
+    assert_that!(
+        vsafe5v,
+        all![
+            property!(
+                &SinkPdoFixedSupplyVSafe5V.path(),
+                eq(&PdoPath {
+                    port: 0,
+                    pd: 0,
+                    index: 1,
+                    role: PowerRole::Sink,
+                    supply: SupplyKind::FixedSupply
+                })
+            ),
+            property_sysfs!(&SinkPdoFixedSupplyVSafe5V.dual_role_power(), ok(is_true())),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.higher_capability(),
+                ok(is_false())
+            ),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.unconstrained_power(),
+                ok(is_true())
+            ),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.usb_communication_capable(),
+                ok(is_true())
+            ),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.unchunked_extended_messages_supported(),
+                ok(is_false())
+            ),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.fast_role_swap_current(),
+                ok(eq(FastRoleSwapCurrent::NotSupported))
+            ),
+        ]
+    );
+
+    let vsafe5v_path = vsafe5v.path().clone();
+    let vsafe5v = vsafe5v.into_fixed_supply().try_into_vsafe5v().unwrap();
+    assert_that!(vsafe5v.path(), eq(&vsafe5v_path));
+
+    let mut pdos = caps.pdos().list_opened().unwrap();
     pdos.sort_by_key(|m| m.path().index);
 
     assert_that!(
@@ -803,21 +924,6 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
                     })
                 ),
                 matches_pattern!(SinkPdo::FixedSupply(all![
-                    property_sysfs!(&SinkPdoFixedSupply.dual_role_power(), ok(is_true())),
-                    property_sysfs!(&SinkPdoFixedSupply.higher_capability(), ok(is_false())),
-                    property_sysfs!(&SinkPdoFixedSupply.unconstrained_power(), ok(is_true())),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.usb_communication_capable(),
-                        ok(is_true())
-                    ),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.unchunked_extended_messages_supported(),
-                        ok(is_false())
-                    ),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.fast_role_swap_current(),
-                        ok(eq(FastRoleSwapCurrent::NotSupported))
-                    ),
                     property_sysfs!(&SinkPdoFixedSupply.voltage(), ok(eq(Millivolts(5000)))),
                     property_sysfs!(
                         &SinkPdoFixedSupply.operational_current(),
@@ -854,7 +960,23 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
         ],
     );
 
-    let mut pdos = collection
+    assert_that!(
+        SinkPdoFixedSupply::open(pdos[0].path().clone())
+            .unwrap()
+            .try_into_vsafe5v(),
+        ok(property!(
+            &SinkPdoFixedSupplyVSafe5V.path(),
+            eq(&vsafe5v_path)
+        ))
+    );
+    assert_that!(
+        SinkPdoFixedSupply::open(pdos[1].path().clone())
+            .unwrap()
+            .try_into_vsafe5v(),
+        err(property!(&SinkPdoFixedSupply.path(), eq(pdos[1].path())))
+    );
+
+    let caps = collection
         .get(1)
         .unwrap()
         .partner()
@@ -865,10 +987,51 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
         .unwrap()
         .sink_capabilities()
         .open()
-        .unwrap()
-        .pdos()
-        .list_opened()
         .unwrap();
+
+    let vsafe5v = caps.vsafe5v().open().unwrap();
+    assert_that!(
+        vsafe5v,
+        all![
+            property!(
+                &SinkPdoFixedSupplyVSafe5V.path(),
+                eq(&PdoPath {
+                    port: 1,
+                    pd: 1,
+                    index: 1,
+                    role: PowerRole::Sink,
+                    supply: SupplyKind::FixedSupply
+                })
+            ),
+            property_sysfs!(&SinkPdoFixedSupplyVSafe5V.dual_role_power(), ok(is_true())),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.higher_capability(),
+                ok(is_true())
+            ),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.unconstrained_power(),
+                ok(is_false())
+            ),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.usb_communication_capable(),
+                ok(is_true())
+            ),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.unchunked_extended_messages_supported(),
+                ok(is_false())
+            ),
+            property_sysfs!(
+                &SinkPdoFixedSupplyVSafe5V.fast_role_swap_current(),
+                ok(eq(FastRoleSwapCurrent::NotSupported))
+            ),
+        ]
+    );
+
+    let vsafe5v_path = vsafe5v.path().clone();
+    let vsafe5v = vsafe5v.into_fixed_supply().try_into_vsafe5v().unwrap();
+    assert_that!(vsafe5v.path(), eq(&vsafe5v_path));
+
+    let mut pdos = caps.pdos().list_opened().unwrap();
     pdos.sort_by_key(|m| m.path().index);
 
     assert_that!(
@@ -886,21 +1049,6 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
                     })
                 ),
                 matches_pattern!(SinkPdo::FixedSupply(all![
-                    property_sysfs!(&SinkPdoFixedSupply.dual_role_power(), ok(is_true())),
-                    property_sysfs!(&SinkPdoFixedSupply.higher_capability(), ok(is_true())),
-                    property_sysfs!(&SinkPdoFixedSupply.unconstrained_power(), ok(is_false())),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.usb_communication_capable(),
-                        ok(is_true())
-                    ),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.unchunked_extended_messages_supported(),
-                        ok(is_false())
-                    ),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.fast_role_swap_current(),
-                        ok(eq(FastRoleSwapCurrent::NotSupported))
-                    ),
                     property_sysfs!(&SinkPdoFixedSupply.voltage(), ok(eq(Millivolts(5000)))),
                     property_sysfs!(
                         &SinkPdoFixedSupply.operational_current(),
@@ -920,30 +1068,6 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
                     })
                 ),
                 matches_pattern!(SinkPdo::FixedSupply(all![
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.dual_role_power(),
-                        err(eq(Error::Io(IoErrorKind::NotFound)))
-                    ),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.higher_capability(),
-                        err(eq(Error::Io(IoErrorKind::NotFound)))
-                    ),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.unconstrained_power(),
-                        err(eq(Error::Io(IoErrorKind::NotFound)))
-                    ),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.usb_communication_capable(),
-                        err(eq(Error::Io(IoErrorKind::NotFound)))
-                    ),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.unchunked_extended_messages_supported(),
-                        err(eq(Error::Io(IoErrorKind::NotFound)))
-                    ),
-                    property_sysfs!(
-                        &SinkPdoFixedSupply.fast_role_swap_current(),
-                        err(eq(Error::Io(IoErrorKind::NotFound)))
-                    ),
                     property_sysfs!(&SinkPdoFixedSupply.voltage(), ok(eq(Millivolts(9000)))),
                     property_sysfs!(
                         &SinkPdoFixedSupply.operational_current(),
@@ -978,6 +1102,22 @@ fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
                 ])),
             ],
         ],
+    );
+
+    assert_that!(
+        SinkPdoFixedSupply::open(pdos[0].path().clone())
+            .unwrap()
+            .try_into_vsafe5v(),
+        ok(property!(
+            &SinkPdoFixedSupplyVSafe5V.path(),
+            eq(&vsafe5v_path)
+        ))
+    );
+    assert_that!(
+        SinkPdoFixedSupply::open(pdos[1].path().clone())
+            .unwrap()
+            .try_into_vsafe5v(),
+        err(property!(&SinkPdoFixedSupply.path(), eq(pdos[1].path())))
     );
 }
 
