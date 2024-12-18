@@ -9,7 +9,7 @@ use umockdev::prelude::*;
 
 use yuca::{sysfs::*, types::*, Error};
 
-const UMOCKDEV_DATA_COMMON: &str = include_str!("../umockdev/common.umockdev");
+const UMOCKDEV_DEVICES_DEFAULT: &str = include_str!("../../umockdev/devices-default.umockdev");
 
 macro_rules! property_sysfs {
     (&$($ty:ident)::+$(.$method:tt())+, $($target:tt)*) => {
@@ -51,7 +51,7 @@ fn testbed() -> LockingTestbed {
 
 #[rstest]
 fn test_port(testbed: LockingTestbed) {
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let mut ports = Port::collection().unwrap().list_opened().unwrap();
     ports.sort_by_key(|p| p.path().port);
@@ -128,7 +128,7 @@ fn test_port_alt_mode(testbed: LockingTestbed) {
     type AltModePort = AltMode<PortPath>;
     type AltModePathPort = AltModePath<PortPath>;
 
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let collection = Port::collection().unwrap();
 
@@ -215,7 +215,7 @@ fn test_port_alt_mode(testbed: LockingTestbed) {
 
 #[rstest]
 fn test_port_cable(testbed: LockingTestbed) {
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let collection = Port::collection().unwrap();
 
@@ -308,7 +308,7 @@ fn test_port_cable(testbed: LockingTestbed) {
 
 #[rstest]
 fn test_port_cable_plug(testbed: LockingTestbed) {
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let collection = Port::collection().unwrap();
 
@@ -353,7 +353,7 @@ fn test_port_cable_plug(testbed: LockingTestbed) {
 
 #[rstest]
 fn test_port_cable_plug_alt_mode(testbed: LockingTestbed) {
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let collection = Port::collection().unwrap();
 
@@ -388,7 +388,7 @@ fn test_port_cable_plug_alt_mode(testbed: LockingTestbed) {
 
 #[rstest]
 fn test_port_partner(testbed: LockingTestbed) {
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let collection = Port::collection().unwrap();
 
@@ -494,7 +494,7 @@ fn test_port_partner_alt_mode(testbed: LockingTestbed) {
     type AltModePartner = AltMode<PartnerPath>;
     type AltModePathPartner = AltModePath<PartnerPath>;
 
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let collection = Port::collection().unwrap();
 
@@ -594,7 +594,7 @@ fn test_port_partner_alt_mode(testbed: LockingTestbed) {
 
 #[rstest]
 fn test_port_partner_pd(testbed: LockingTestbed) {
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let collection = Port::collection().unwrap();
 
@@ -645,7 +645,7 @@ fn test_port_partner_pd(testbed: LockingTestbed) {
 
 #[rstest]
 fn test_port_partner_source_pdo(testbed: LockingTestbed) {
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let collection = Port::collection().unwrap();
 
@@ -767,7 +767,7 @@ fn test_port_partner_source_pdo(testbed: LockingTestbed) {
 
 #[rstest]
 fn test_port_partner_sink_pdo(testbed: LockingTestbed) {
-    testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+    testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
     let collection = Port::collection().unwrap();
 
@@ -999,7 +999,7 @@ mod feat_tokio {
     }
 
     async fn do_test_watch<P: DevicePathWatchable>(testbed: LockingTestbed, target: P, other: P) {
-        testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+        testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
         let (w, jh) = Watcher::spawn_tokio(EventSource::Netlink).unwrap();
         w.enable_umockdev_events_for_testing().unwrap();
@@ -1112,7 +1112,7 @@ mod feat_tokio {
         child: Child,
         collection_getter: impl FnOnce(&Child::Parent) -> DevicePathCollection<Child>,
     ) {
-        testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+        testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
         let (w, jh) = Watcher::spawn_tokio(EventSource::Netlink).unwrap();
         w.enable_umockdev_events_for_testing().unwrap();
@@ -1261,7 +1261,7 @@ mod feat_tokio {
     async fn test_watch_overflow(testbed: LockingTestbed) {
         const TOTAL: usize = 256;
 
-        testbed.add_from_string(UMOCKDEV_DATA_COMMON).unwrap();
+        testbed.add_from_string(UMOCKDEV_DEVICES_DEFAULT).unwrap();
 
         let (w, jh) = Watcher::spawn_tokio(EventSource::Netlink).unwrap();
         w.enable_umockdev_events_for_testing().unwrap();
