@@ -4,6 +4,7 @@ edition = "2021"
 
 [features]
 default = ["tokio"]
+rustix-use-libc = ["rustix/use-libc"]
 tokio = ["dep:tokio"]
 
 [dependencies]
