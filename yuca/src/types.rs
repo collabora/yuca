@@ -382,9 +382,9 @@ pub enum FastRoleSwapCurrent {
     NotSupported = 0b00,
     /// Standard USB (non-type-C) power.
     Default = 0b01,
-    // 1.5A @ 5V.
+    /// 1.5A @ 5V.
     _1_5A = 0b10,
-    // 3.0A @ 5V.
+    /// 3.0A @ 5V.
     _3_0A = 0b11,
 }
 
