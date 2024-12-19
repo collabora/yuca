@@ -670,7 +670,13 @@ fn print_source_pdo(p: TreePrinter, pdo: DeviceOpener<'_, SourcePdo>) {
                 }
             };
 
-            // TODO: how should peak_current look?
+            p.property("Peak current overload")
+                .try_apply(pdo.peak_current().get(), |p, value| match value {
+                    PeakCurrent::NotSupported => print_line_styled!(p, literal, "not supported"),
+                    PeakCurrent::OverloadLow => print_line_styled!(p, literal, "low"),
+                    PeakCurrent::OverloadMedium => print_line_styled!(p, literal, "medium"),
+                    PeakCurrent::OverloadHigh => print_line_styled!(p, literal, "medium"),
+                });
             p.property("Voltage")
                 .try_apply(pdo.voltage().get(), |p, value| {
                     print_line_styled!(p, number, "{} mV", value.0)

@@ -1733,7 +1733,7 @@ impl SourcePdoFixedSupplyVSafe5V {
     );
 
     // Shared with SourcePdoFixedSupply.
-    property!(peak_current, ro(u32));
+    property!(peak_current, ro(PeakCurrent));
     property!(voltage, ro(Millivolts));
     property!(maximum_current, ro(Milliamps));
 
@@ -1757,7 +1757,7 @@ impl_sealed!(SourcePdoFixedSupply);
 impl_device!(SourcePdoFixedSupply, path(PdoPath));
 
 impl SourcePdoFixedSupply {
-    property!(peak_current, ro(u32));
+    property!(peak_current, ro(PeakCurrent));
     property!(voltage, ro(Millivolts));
     property!(maximum_current, ro(Milliamps));
 

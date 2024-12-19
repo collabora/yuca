@@ -396,6 +396,25 @@ impl FromStr for FastRoleSwapCurrent {
     }
 }
 
+/// The extent of the PDO's ability to overload the current for a short period
+/// of time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRepr)]
+#[repr(u32)]
+pub enum PeakCurrent {
+    NotSupported = 0b00,
+    OverloadLow = 0b01,
+    OverloadMedium = 0b10,
+    OverloadHigh = 0b11,
+}
+
+impl FromStr for PeakCurrent {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        s.parse().ok().and_then(Self::from_repr).ok_or(Error::Parse)
+    }
+}
+
 /// A number with the unit mV.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Millivolts(pub u32);
