@@ -182,6 +182,12 @@ println!("Port 0's power role is: {power_role:?}");
 # }
 ```
 
+Many of the properties directly correspond to the sysfs paths, so you can use
+the kernel's documentation on them as a point of reference:
+
+- https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-class-typec
+- https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-class-usb_power_delivery
+
 [`Device`]: trait@sysfs::Device
 [`Device::open`]: fn@sysfs::Device::open
 [`DeviceEntry`]: struct@sysfs::DeviceEntry

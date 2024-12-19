@@ -1,4 +1,4 @@
-#![doc = include_str!("../../docs/watcher.md")]
+#![doc = include_str!("../docs/watcher.md")]
 
 use std::{
     collections::HashMap,

@@ -7,9 +7,13 @@ resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
+authors = ["Ryan Gonzalez <ryan.gonzalez@collabora.com>"]
+categories = ["hardware-support", "os", "os::linux-apis"]
+keywords = ["linux", "sysfs", "usb"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-readme = "README.md"
+repository = "https://github.com/collabora/yuca"
+publish = true
 
 [workspace.dependencies]
 rustix = { version = "0.38.37", features = ["fs"] }

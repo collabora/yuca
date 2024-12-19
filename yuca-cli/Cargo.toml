@@ -1,6 +1,15 @@
 [package]
 name = "yuca-cli"
-edition = "2021"
+description = "Demo CLI for yuca (access USB Type-C device information on Linux)"
+readme = "README.md"
+version.workspace = true
+authors.workspace = true
+categories.workspace = true
+keywords.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [[bin]]
 name = "yuca"
@@ -13,4 +22,4 @@ futures-lite = "2.5.0"
 owo-colors = { version = "4.1.0", features = ["supports-colors"] }
 tokio = { workspace = true, features = ["sync"] }
 usb-ids = "1.2024.5"
-yuca = { path = "../yuca" }
+yuca = { version = "0.1.0", path = "../yuca" }

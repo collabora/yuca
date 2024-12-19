@@ -1,5 +1,9 @@
 # yuca
 
+[![crates.io](https://img.shields.io/crates/v/yuca?style=for-the-badge)](https://crates.io/crates/yuca)
+[![docs.rs](https://img.shields.io/docsrs/yuca?style=for-the-badge)](https://docs.rs/yuca)
+[![build status](https://img.shields.io/github/actions/workflow/status/collabora/yuca/ci.yml?style=for-the-badge)](https://github.com/collabora/yuca/actions/workflows/ci.yml)
+
 Yuca is a Rust crate to access USB Type-C device information on Linux.
 
 ```rust,no_run
